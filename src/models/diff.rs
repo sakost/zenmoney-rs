@@ -1,10 +1,11 @@
 //! Diff synchronization request/response models.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Account, Budget, Company, Instrument, Merchant, Reminder, ReminderMarker, Tag, Transaction,
-    User,
+    Account, Budget, Company, Country, Instrument, Merchant, Reminder, ReminderMarker, Tag,
+    Transaction, User,
 };
 
 /// A deletion record identifying a removed entity.
@@ -14,8 +15,9 @@ pub struct Deletion {
     pub id: String,
     /// Entity type name (e.g. "transaction", "account").
     pub object: String,
-    /// Timestamp of deletion (Unix seconds).
-    pub stamp: i64,
+    /// Timestamp of deletion.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub stamp: DateTime<Utc>,
     /// User who deleted the entity.
     pub user: i64,
 }
@@ -24,10 +26,12 @@ pub struct Deletion {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffRequest {
-    /// Client's current Unix timestamp (for server time correction).
-    pub current_client_timestamp: i64,
-    /// Last known server timestamp (0 for initial sync).
-    pub server_timestamp: i64,
+    /// Client's current timestamp (for server time correction).
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub current_client_timestamp: DateTime<Utc>,
+    /// Last known server timestamp (epoch for initial sync).
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub server_timestamp: DateTime<Utc>,
     /// Entity types to force-fetch completely.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub force_fetch: Vec<String>,
@@ -61,7 +65,10 @@ impl DiffRequest {
     /// Creates a minimal diff request for syncing (read-only, no changes).
     #[inline]
     #[must_use]
-    pub const fn sync_only(server_timestamp: i64, current_client_timestamp: i64) -> Self {
+    pub const fn sync_only(
+        server_timestamp: DateTime<Utc>,
+        current_client_timestamp: DateTime<Utc>,
+    ) -> Self {
         Self {
             current_client_timestamp,
             server_timestamp,
@@ -83,10 +90,14 @@ impl DiffRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DiffResponse {
     /// New server timestamp to use for the next sync.
-    pub server_timestamp: i64,
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub server_timestamp: DateTime<Utc>,
     /// Updated instruments.
     #[serde(default)]
     pub instrument: Vec<Instrument>,
+    /// Updated countries.
+    #[serde(default)]
+    pub country: Vec<Country>,
     /// Updated companies.
     #[serde(default)]
     pub company: Vec<Company>,
@@ -125,7 +136,10 @@ mod tests {
 
     #[test]
     fn serialize_sync_only_request() {
-        let req = DiffRequest::sync_only(0, 1_700_000_000);
+        let req = DiffRequest::sync_only(
+            DateTime::UNIX_EPOCH,
+            DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        );
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["currentClientTimestamp"], 1_700_000_000);
         assert_eq!(json["serverTimestamp"], 0);
@@ -141,7 +155,10 @@ mod tests {
             "serverTimestamp": 1700000100
         }"#;
         let resp: DiffResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.server_timestamp, 1_700_000_100);
+        assert_eq!(
+            resp.server_timestamp,
+            DateTime::from_timestamp(1_700_000_100, 0).unwrap()
+        );
         assert!(resp.instrument.is_empty());
         assert!(resp.transaction.is_empty());
     }
@@ -180,7 +197,7 @@ mod tests {
         let deletion = Deletion {
             id: "some-id".to_owned(),
             object: "account".to_owned(),
-            stamp: 1_700_000_000,
+            stamp: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             user: 123,
         };
         let json = serde_json::to_string(&deletion).unwrap();
@@ -190,10 +207,19 @@ mod tests {
 
     #[test]
     fn diff_request_roundtrip() {
-        let req = DiffRequest::sync_only(100, 200);
+        let req = DiffRequest::sync_only(
+            DateTime::from_timestamp(100, 0).unwrap(),
+            DateTime::from_timestamp(200, 0).unwrap(),
+        );
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: DiffRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.server_timestamp, 100);
-        assert_eq!(deserialized.current_client_timestamp, 200);
+        assert_eq!(
+            deserialized.server_timestamp,
+            DateTime::from_timestamp(100, 0).unwrap()
+        );
+        assert_eq!(
+            deserialized.current_client_timestamp,
+            DateTime::from_timestamp(200, 0).unwrap()
+        );
     }
 }

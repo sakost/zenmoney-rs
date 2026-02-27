@@ -1,5 +1,6 @@
 //! Reminder marker (instance) model.
 
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -13,8 +14,9 @@ use super::{
 pub struct ReminderMarker {
     /// Unique identifier (UUID).
     pub id: ReminderMarkerId,
-    /// Last modification timestamp (Unix seconds).
-    pub changed: i64,
+    /// Last modification timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub changed: DateTime<Utc>,
     /// Owner user identifier.
     pub user: UserId,
     /// Income currency instrument.
@@ -37,14 +39,17 @@ pub struct ReminderMarker {
     pub payee: Option<String>,
     /// User comment.
     pub comment: Option<String>,
-    /// Scheduled date (yyyy-MM-dd).
-    pub date: String,
+    /// Scheduled date.
+    pub date: NaiveDate,
     /// Parent reminder identifier.
     pub reminder: ReminderId,
     /// Current state of this marker.
     pub state: ReminderMarkerState,
     /// Whether to send a notification.
     pub notify: bool,
+    /// Whether this marker is a forecast entry.
+    #[serde(default)]
+    pub is_forecast: Option<bool>,
 }
 
 #[cfg(test)]
@@ -75,7 +80,7 @@ mod tests {
         let marker: ReminderMarker = serde_json::from_str(json).unwrap();
         assert_eq!(marker.state, ReminderMarkerState::Planned);
         assert_eq!(marker.reminder, ReminderId::new("rem-001".to_owned()));
-        assert_eq!(marker.date, "2024-02-01");
+        assert_eq!(marker.date, NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
     }
 
     #[test]
@@ -108,7 +113,7 @@ mod tests {
     fn serialize_roundtrip() {
         let marker = ReminderMarker {
             id: ReminderMarkerId::new("rm-1".to_owned()),
-            changed: 1_700_000_000,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             user: UserId::new(1),
             income_instrument: InstrumentId::new(1),
             income_account: AccountId::new("a-1".to_owned()),
@@ -120,10 +125,11 @@ mod tests {
             merchant: None,
             payee: None,
             comment: None,
-            date: "2024-01-01".to_owned(),
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             reminder: ReminderId::new("r-1".to_owned()),
             state: ReminderMarkerState::Deleted,
             notify: false,
+            is_forecast: None,
         };
         let json = serde_json::to_string(&marker).unwrap();
         let deserialized: ReminderMarker = serde_json::from_str(&json).unwrap();

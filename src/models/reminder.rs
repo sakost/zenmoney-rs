@@ -1,5 +1,6 @@
 //! Recurring transaction reminder model.
 
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{AccountId, InstrumentId, Interval, MerchantId, ReminderId, TagId, UserId};
@@ -10,8 +11,9 @@ use super::{AccountId, InstrumentId, Interval, MerchantId, ReminderId, TagId, Us
 pub struct Reminder {
     /// Unique identifier (UUID).
     pub id: ReminderId,
-    /// Last modification timestamp (Unix seconds).
-    pub changed: i64,
+    /// Last modification timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub changed: DateTime<Utc>,
     /// Owner user identifier.
     pub user: UserId,
     /// Income currency instrument.
@@ -40,10 +42,10 @@ pub struct Reminder {
     pub step: Option<i32>,
     /// Specific day points within the interval.
     pub points: Option<Vec<i32>>,
-    /// First occurrence date (yyyy-MM-dd).
-    pub start_date: String,
-    /// Last occurrence date (yyyy-MM-dd).
-    pub end_date: Option<String>,
+    /// First occurrence date.
+    pub start_date: NaiveDate,
+    /// Last occurrence date.
+    pub end_date: Option<NaiveDate>,
     /// Whether to send notifications.
     pub notify: bool,
 }
@@ -116,7 +118,7 @@ mod tests {
     fn serialize_roundtrip() {
         let reminder = Reminder {
             id: ReminderId::new("r-1".to_owned()),
-            changed: 1_700_000_000,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             user: UserId::new(1),
             income_instrument: InstrumentId::new(1),
             income_account: AccountId::new("a-1".to_owned()),
@@ -131,7 +133,7 @@ mod tests {
             interval: Some(Interval::Week),
             step: Some(2),
             points: Some(vec![0, 1]),
-            start_date: "2024-01-01".to_owned(),
+            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             end_date: None,
             notify: true,
         };

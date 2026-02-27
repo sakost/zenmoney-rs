@@ -1,5 +1,6 @@
 //! Merchant/payee model.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{MerchantId, UserId};
@@ -10,8 +11,9 @@ use super::{MerchantId, UserId};
 pub struct Merchant {
     /// Unique identifier (UUID).
     pub id: MerchantId,
-    /// Last modification timestamp (Unix seconds).
-    pub changed: i64,
+    /// Last modification timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub changed: DateTime<Utc>,
     /// Owner user identifier.
     pub user: UserId,
     /// Merchant display name.
@@ -39,7 +41,7 @@ mod tests {
     fn serialize_roundtrip() {
         let merchant = Merchant {
             id: MerchantId::new("m-1".to_owned()),
-            changed: 1_700_000_000,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             user: UserId::new(1),
             title: "Test Merchant".to_owned(),
         };

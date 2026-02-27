@@ -1,5 +1,6 @@
 //! Transaction category tag model.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{TagId, UserId};
@@ -16,8 +17,9 @@ use super::{TagId, UserId};
 pub struct Tag {
     /// Unique identifier (UUID).
     pub id: TagId,
-    /// Last modification timestamp (Unix seconds).
-    pub changed: i64,
+    /// Last modification timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub changed: DateTime<Utc>,
     /// Owner user identifier.
     pub user: UserId,
     /// Display name.
@@ -41,6 +43,12 @@ pub struct Tag {
     /// Whether the tag is required for transactions (defaults to true if
     /// null).
     pub required: Option<bool>,
+    /// Static identifier for system-defined tags.
+    #[serde(default)]
+    pub static_id: Option<String>,
+    /// Whether the tag is archived.
+    #[serde(default)]
+    pub archive: Option<bool>,
 }
 
 #[cfg(test)]
@@ -98,7 +106,7 @@ mod tests {
     fn serialize_roundtrip() {
         let tag = Tag {
             id: TagId::new("t-1".to_owned()),
-            changed: 1_700_000_000,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             user: UserId::new(1),
             title: "Test".to_owned(),
             parent: None,
@@ -110,6 +118,8 @@ mod tests {
             budget_income: false,
             budget_outcome: false,
             required: Some(false),
+            static_id: None,
+            archive: None,
         };
         let json = serde_json::to_string(&tag).unwrap();
         let deserialized: Tag = serde_json::from_str(&json).unwrap();

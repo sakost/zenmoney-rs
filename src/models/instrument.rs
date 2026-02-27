@@ -1,5 +1,6 @@
 //! Currency/financial instrument model.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::InstrumentId;
@@ -10,8 +11,9 @@ use super::InstrumentId;
 pub struct Instrument {
     /// Unique identifier.
     pub id: InstrumentId,
-    /// Last modification timestamp (Unix seconds).
-    pub changed: i64,
+    /// Last modification timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub changed: DateTime<Utc>,
     /// Full name of the instrument (e.g. "US Dollar").
     pub title: String,
     /// Three-letter currency code (e.g. "USD").
@@ -38,7 +40,10 @@ mod tests {
         }"#;
         let instrument: Instrument = serde_json::from_str(json).unwrap();
         assert_eq!(instrument.id, InstrumentId::new(2));
-        assert_eq!(instrument.changed, 1_700_000_000);
+        assert_eq!(
+            instrument.changed,
+            DateTime::from_timestamp(1_700_000_000, 0).unwrap()
+        );
         assert_eq!(instrument.title, "US Dollar");
         assert_eq!(instrument.short_title, "USD");
         assert_eq!(instrument.symbol, "$");
@@ -49,7 +54,7 @@ mod tests {
     fn serialize_roundtrip() {
         let instrument = Instrument {
             id: InstrumentId::new(1),
-            changed: 1_700_000_000,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             title: "Russian Ruble".to_owned(),
             short_title: "RUB".to_owned(),
             symbol: "\u{20bd}".to_owned(),

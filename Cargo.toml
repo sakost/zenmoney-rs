@@ -124,7 +124,7 @@ wildcard_dependencies = "deny"
 ignored = ["chrono", "secrecy", "reqwest", "url", "comfy-table", "dotenvy", "indicatif", "owo-colors", "tracing-subscriber"]
 
 [dependencies]
-chrono = { version = "0.4.44", default-features = false, features = ["serde"] }
+chrono = { version = "0.4.44", default-features = false, features = ["serde", "clock"] }
 comfy-table = { version = "7.2.2", optional = true }
 dotenvy = { version = "0.15.7", optional = true }
 indicatif = { version = "0.18.4", optional = true }

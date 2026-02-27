@@ -1,5 +1,6 @@
 //! Financial account model.
 
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{AccountId, AccountType, CompanyId, InstrumentId, PayoffInterval, UserId};
@@ -14,8 +15,9 @@ use super::{AccountId, AccountType, CompanyId, InstrumentId, PayoffInterval, Use
 pub struct Account {
     /// Unique identifier (UUID).
     pub id: AccountId,
-    /// Last modification timestamp (Unix seconds).
-    pub changed: i64,
+    /// Last modification timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub changed: DateTime<Utc>,
     /// Owner user identifier.
     pub user: UserId,
     /// Role user identifier (for shared accounts).
@@ -53,8 +55,8 @@ pub struct Account {
     pub capitalization: Option<bool>,
     /// Interest rate percentage (>= 0, < 100).
     pub percent: Option<f64>,
-    /// Start date of the deposit/loan (yyyy-MM-dd).
-    pub start_date: Option<String>,
+    /// Start date of the deposit/loan.
+    pub start_date: Option<NaiveDate>,
     /// End date offset from start.
     pub end_date_offset: Option<i32>,
     /// Unit for end date offset.
@@ -63,6 +65,12 @@ pub struct Account {
     pub payoff_step: Option<i32>,
     /// Repayment interval unit.
     pub payoff_interval: Option<PayoffInterval>,
+    /// Balance correction type.
+    #[serde(default)]
+    pub balance_correction_type: Option<String>,
+    /// Whether this is a private account.
+    #[serde(default)]
+    pub private: Option<bool>,
 }
 
 #[cfg(test)]
@@ -173,7 +181,10 @@ mod tests {
         assert_eq!(account.kind, AccountType::Deposit);
         assert_eq!(account.capitalization, Some(true));
         assert!((account.percent.unwrap() - 7.5).abs() < f64::EPSILON);
-        assert_eq!(account.start_date.as_deref(), Some("2024-01-01"));
+        assert_eq!(
+            account.start_date,
+            Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap())
+        );
         assert_eq!(account.end_date_offset, Some(12));
         assert_eq!(
             account.end_date_offset_interval,
@@ -185,7 +196,7 @@ mod tests {
     fn serialize_roundtrip() {
         let account = Account {
             id: AccountId::new("test-id".to_owned()),
-            changed: 1_700_000_000,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             user: UserId::new(1),
             role: None,
             instrument: Some(InstrumentId::new(1)),
@@ -208,6 +219,8 @@ mod tests {
             end_date_offset_interval: None,
             payoff_step: None,
             payoff_interval: None,
+            balance_correction_type: None,
+            private: None,
         };
         let json = serde_json::to_string(&account).unwrap();
         let deserialized: Account = serde_json::from_str(&json).unwrap();

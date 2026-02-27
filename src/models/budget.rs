@@ -1,5 +1,6 @@
 //! Monthly budget model.
 
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{TagId, UserId};
@@ -8,15 +9,16 @@ use super::{TagId, UserId};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Budget {
-    /// Last modification timestamp (Unix seconds).
-    pub changed: i64,
+    /// Last modification timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub changed: DateTime<Utc>,
     /// Owner user identifier.
     pub user: UserId,
     /// Category tag (null or special UUID
     /// "00000000-0000-0000-0000-000000000000" for aggregate).
     pub tag: Option<TagId>,
-    /// Budget month start date (yyyy-MM-dd).
-    pub date: String,
+    /// Budget month start date.
+    pub date: NaiveDate,
     /// Income target amount.
     pub income: f64,
     /// Whether the income value is manually locked.
@@ -25,6 +27,12 @@ pub struct Budget {
     pub outcome: f64,
     /// Whether the outcome value is manually locked.
     pub outcome_lock: bool,
+    /// Whether the income value is a forecast.
+    #[serde(default)]
+    pub is_income_forecast: Option<bool>,
+    /// Whether the outcome value is a forecast.
+    #[serde(default)]
+    pub is_outcome_forecast: Option<bool>,
 }
 
 #[cfg(test)]
@@ -69,14 +77,16 @@ mod tests {
     #[test]
     fn serialize_roundtrip() {
         let budget = Budget {
-            changed: 1_700_000_000,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             user: UserId::new(1),
             tag: Some(TagId::new("t-1".to_owned())),
-            date: "2024-01-01".to_owned(),
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             income: 0.0,
             income_lock: false,
             outcome: 5000.0,
             outcome_lock: false,
+            is_income_forecast: None,
+            is_outcome_forecast: None,
         };
         let json = serde_json::to_string(&budget).unwrap();
         let deserialized: Budget = serde_json::from_str(&json).unwrap();

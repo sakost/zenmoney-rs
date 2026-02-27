@@ -1,5 +1,6 @@
 //! Financial company/institution model.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::CompanyId;
@@ -10,16 +11,24 @@ use super::CompanyId;
 pub struct Company {
     /// Unique identifier.
     pub id: CompanyId,
-    /// Last modification timestamp (Unix seconds).
-    pub changed: i64,
+    /// Last modification timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub changed: DateTime<Utc>,
     /// Short company name.
     pub title: String,
     /// Full legal name.
     pub full_title: Option<String>,
     /// Company website URL.
     pub www: Option<String>,
+    /// Country identifier.
+    #[serde(default)]
+    pub country: Option<i32>,
     /// Two-letter country code.
-    pub country: Option<String>,
+    #[serde(default)]
+    pub country_code: Option<String>,
+    /// Whether the company has been deleted.
+    #[serde(default)]
+    pub deleted: Option<bool>,
 }
 
 #[cfg(test)]
@@ -34,14 +43,16 @@ mod tests {
             "title": "Sberbank",
             "fullTitle": "Sberbank of Russia",
             "www": "https://www.sberbank.ru",
-            "country": "RU"
+            "country": 1,
+            "countryCode": "RU"
         }"#;
         let company: Company = serde_json::from_str(json).unwrap();
         assert_eq!(company.id, CompanyId::new(4));
         assert_eq!(company.title, "Sberbank");
         assert_eq!(company.full_title.as_deref(), Some("Sberbank of Russia"));
         assert_eq!(company.www.as_deref(), Some("https://www.sberbank.ru"));
-        assert_eq!(company.country.as_deref(), Some("RU"));
+        assert_eq!(company.country, Some(1));
+        assert_eq!(company.country_code.as_deref(), Some("RU"));
     }
 
     #[test]
@@ -61,14 +72,31 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_company_with_deleted() {
+        let json = r#"{
+            "id": 6,
+            "changed": 1700000000,
+            "title": "Old Bank",
+            "fullTitle": null,
+            "www": null,
+            "country": 2,
+            "deleted": true
+        }"#;
+        let company: Company = serde_json::from_str(json).unwrap();
+        assert_eq!(company.deleted, Some(true));
+    }
+
+    #[test]
     fn serialize_roundtrip() {
         let company = Company {
             id: CompanyId::new(1),
-            changed: 1_700_000_000,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             title: "Test Bank".to_owned(),
             full_title: None,
             www: Some("https://example.com".to_owned()),
-            country: Some("US".to_owned()),
+            country: Some(1),
+            country_code: Some("US".to_owned()),
+            deleted: None,
         };
         let json = serde_json::to_string(&company).unwrap();
         let deserialized: Company = serde_json::from_str(&json).unwrap();

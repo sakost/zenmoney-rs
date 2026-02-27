@@ -1,5 +1,6 @@
 //! Transaction model.
 
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{AccountId, InstrumentId, MerchantId, ReminderMarkerId, TagId, TransactionId, UserId};
@@ -10,10 +11,12 @@ use super::{AccountId, InstrumentId, MerchantId, ReminderMarkerId, TagId, Transa
 pub struct Transaction {
     /// Unique identifier (UUID).
     pub id: TransactionId,
-    /// Last modification timestamp (Unix seconds).
-    pub changed: i64,
-    /// Creation timestamp (Unix seconds).
-    pub created: i64,
+    /// Last modification timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub changed: DateTime<Utc>,
+    /// Creation timestamp.
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub created: DateTime<Utc>,
     /// Owner user identifier.
     pub user: UserId,
     /// Whether the transaction has been deleted.
@@ -42,8 +45,8 @@ pub struct Transaction {
     pub original_payee: Option<String>,
     /// User comment.
     pub comment: Option<String>,
-    /// Transaction date (yyyy-MM-dd).
-    pub date: String,
+    /// Transaction date.
+    pub date: NaiveDate,
     /// Merchant Category Code.
     pub mcc: Option<i32>,
     /// Associated reminder marker.
@@ -60,6 +63,21 @@ pub struct Transaction {
     pub latitude: Option<f64>,
     /// Longitude coordinate.
     pub longitude: Option<f64>,
+    /// Income bank transaction identifier.
+    #[serde(default, rename = "incomeBankID")]
+    pub income_bank_id: Option<String>,
+    /// Outcome bank transaction identifier.
+    #[serde(default, rename = "outcomeBankID")]
+    pub outcome_bank_id: Option<String>,
+    /// QR code data.
+    #[serde(default)]
+    pub qr_code: Option<String>,
+    /// Transaction source (e.g. "import", "user").
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Whether the transaction has been viewed.
+    #[serde(default)]
+    pub viewed: Option<bool>,
 }
 
 #[cfg(test)]
@@ -100,7 +118,7 @@ mod tests {
         assert_eq!(tx.id, TransactionId::new("tx-001".to_owned()));
         assert!(!tx.deleted);
         assert!((tx.outcome - 500.0).abs() < f64::EPSILON);
-        assert_eq!(tx.date, "2024-01-15");
+        assert_eq!(tx.date, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
         assert_eq!(tx.mcc, Some(5812));
         assert!((tx.latitude.unwrap() - 55.7558).abs() < f64::EPSILON);
     }
@@ -146,8 +164,8 @@ mod tests {
     fn serialize_roundtrip() {
         let tx = Transaction {
             id: TransactionId::new("t-1".to_owned()),
-            changed: 1_700_000_000,
-            created: 1_700_000_000,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            created: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
             user: UserId::new(1),
             deleted: false,
             hold: None,
@@ -162,7 +180,7 @@ mod tests {
             payee: None,
             original_payee: None,
             comment: None,
-            date: "2024-01-01".to_owned(),
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             mcc: None,
             reminder_marker: None,
             op_income: None,
@@ -171,6 +189,11 @@ mod tests {
             op_outcome_instrument: None,
             latitude: None,
             longitude: None,
+            income_bank_id: None,
+            outcome_bank_id: None,
+            qr_code: None,
+            source: None,
+            viewed: None,
         };
         let json = serde_json::to_string(&tx).unwrap();
         let deserialized: Transaction = serde_json::from_str(&json).unwrap();

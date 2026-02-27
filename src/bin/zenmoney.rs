@@ -12,7 +12,9 @@ use comfy_table::{Cell, Color, Table};
 use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;
 use zenmoney_rs::client::ZenMoneyBlockingClient;
-use zenmoney_rs::models::{DiffRequest, DiffResponse, SuggestRequest, SuggestResponse, TagId};
+use zenmoney_rs::models::{
+    DateTime, DiffRequest, DiffResponse, SuggestRequest, SuggestResponse, TagId, Utc,
+};
 
 /// Environment variable name for the API token.
 const TOKEN_ENV: &str = "ZENMONEY_TOKEN";
@@ -77,17 +79,7 @@ fn run() -> io::Result<ExitCode> {
 fn cmd_diff(client: &ZenMoneyBlockingClient) -> io::Result<ExitCode> {
     let spinner = make_spinner("Syncing with ZenMoney API...");
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|dur| dur.as_secs())
-        .unwrap_or(0);
-
-    #[allow(
-        clippy::cast_possible_wrap,
-        reason = "Unix timestamp fits i64 until year 292 billion"
-    )]
-    let timestamp = now as i64;
-    let request = DiffRequest::sync_only(0, timestamp);
+    let request = DiffRequest::sync_only(DateTime::<Utc>::UNIX_EPOCH, Utc::now());
 
     match client.diff(&request) {
         Ok(response) => {
