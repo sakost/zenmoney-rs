@@ -1,0 +1,36 @@
+# Build artifacts
+target/
+
+# Version control
+.git/
+.gitignore
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# CI/CD and tooling config
+.github/
+.jscpd.json
+deny.toml
+release-plz.toml
+
+# Documentation and meta
+README.md
+LICENSE-MIT
+LICENSE-APACHE
+CLAUDE.md
+Justfile
+
+# Coverage and profiling
+*.profraw
+*.profdata
+lcov.info
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
