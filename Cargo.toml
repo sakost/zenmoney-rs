@@ -55,7 +55,7 @@ rc_mutex = "deny"
 redundant_type_annotations = "deny"
 rest_pat_in_fully_bound_structs = "deny"
 same_name_method = "deny"
-self_named_module_files = "deny"
+self_named_module_files = "allow"
 str_to_string = "deny"
 string_add = "deny"
 implicit_clone = "deny"
@@ -124,3 +124,8 @@ wildcard_dependencies = "deny"
 ignored = []
 
 [dependencies]
+chrono = { version = "0.4.44", default-features = false, features = ["serde"] }
+secrecy = { version = "0.10.3", features = ["serde"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+thiserror = "2.0.18"
