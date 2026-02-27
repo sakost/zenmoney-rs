@@ -57,11 +57,13 @@ macro_rules! define_client {
             /// Returns [`ZenMoneyError::TokenExpired`] if no token was provided.
             /// Returns [`ZenMoneyError::Http`] if the HTTP client fails to build.
             #[inline]
+            #[tracing::instrument(skip_all)]
             pub fn build(self) -> Result<$client> {
                 let token = self.token.ok_or(ZenMoneyError::TokenExpired)?;
                 let base_url = self
                     .base_url
                     .unwrap_or_else(|| DEFAULT_BASE_URL.to_owned());
+                tracing::debug!(base_url = %base_url, "building client");
                 let http = <$http_type>::builder().build()?;
 
                 Ok($client {
@@ -103,10 +105,12 @@ macro_rules! define_client {
             /// Returns an error if the HTTP request fails, the server returns a
             /// non-success status, or the response cannot be deserialized.
             #[inline]
+            #[tracing::instrument(skip_all)]
             pub $($async_kw)? fn diff(
                 &self,
                 request: &DiffRequest,
             ) -> Result<DiffResponse> {
+                tracing::debug!("calling diff endpoint");
                 self.post_json(DIFF_PATH, request) $( .$await_ext )?
             }
 
@@ -118,15 +122,18 @@ macro_rules! define_client {
             /// Returns an error if the HTTP request fails, the server returns a
             /// non-success status, or the response cannot be deserialized.
             #[inline]
+            #[tracing::instrument(skip_all)]
             pub $($async_kw)? fn suggest(
                 &self,
                 request: &SuggestRequest,
             ) -> Result<SuggestResponse> {
+                tracing::debug!("calling suggest endpoint");
                 self.post_json(SUGGEST_PATH, request) $( .$await_ext )?
             }
 
             /// Sends an authenticated JSON POST request and deserializes the
             /// response.
+            #[tracing::instrument(skip_all, fields(path = %path))]
             $($async_kw)? fn post_json<
                 Req: serde::Serialize $(+ $send_bound)?,
                 Resp: serde::de::DeserializeOwned,
@@ -136,6 +143,7 @@ macro_rules! define_client {
                 request: &Req,
             ) -> Result<Resp> {
                 let url = format!("{}{path}", self.base_url);
+                tracing::trace!(url = %url, "sending POST request");
                 let response: $resp_type = self
                     .http
                     .post(&url)
@@ -147,14 +155,17 @@ macro_rules! define_client {
                     ?;
 
                 let status = response.status();
+                tracing::debug!(status = %status, "received response");
                 if status.is_success() {
                     let body = response.text() $( .$await_ext )? ?;
+                    tracing::trace!(body_len = body.len(), "parsing response body");
                     serde_json::from_str(&body).map_err(ZenMoneyError::from)
                 } else {
                     let message = response
                         .text()
                         $( .$await_ext )?
                         .unwrap_or_else(|_| "unknown error".to_owned());
+                    tracing::debug!(status = status.as_u16(), message = %message, "API error");
                     Err(ZenMoneyError::Api {
                         status: status.as_u16(),
                         message,
