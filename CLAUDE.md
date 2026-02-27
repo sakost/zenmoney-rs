@@ -8,12 +8,21 @@ Rust client/library for the ZenMoney API. Uses Rust edition 2024.
 
 ## Build Commands
 
-- **Build:** `cargo build`
-- **Test:** `cargo test`
+- **Build:** `cargo build` or `just build`
+- **Test:** `cargo test` or `just test`
 - **Single test:** `cargo test <test_name>`
-- **Clippy lint:** `cargo clippy`
-- **Format:** `cargo fmt`
-- **Check (fast compile check):** `cargo check`
+- **Clippy lint:** `cargo clippy` or `just lint`
+- **Format:** `cargo fmt` (stable) or `cargo +nightly fmt` / `just fmt` (nightly, full feature set)
+- **Format check:** `cargo +nightly fmt --check` or `just fmt-check`
+- **Check (fast compile check):** `cargo check` or `just check`
+- **Dependency audit:** `cargo deny check` or `just deny`
+- **Unused dependency check:** `cargo machete` or `just machete`
+- **Code coverage:** `cargo llvm-cov --all-features --fail-under-lines 95` or `just coverage`
+- **Coverage HTML report:** `just coverage-html`
+- **Copy-paste detection:** `jscpd src/` or `just jscpd`
+- **Code metrics:** `rust-code-analysis-cli -m -p ./src/ --pr -O json` or `just metrics`
+- **Full pre-commit suite:** `just check-all`
+- **Release:** `release-plz update` (update versions/changelog), `release-plz release` (publish)
 
 ## Strict Code Rules
 

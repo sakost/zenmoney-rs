@@ -2,6 +2,9 @@
 name = "zenmoney-rs"
 version = "0.1.0"
 edition = "2024"
+description = "Rust client library for the ZenMoney API"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sakost/zenmoney-rs"
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -116,5 +119,8 @@ unseparated_literal_suffix = "deny"
 unwrap_in_result = "deny"
 use_debug = "deny"
 wildcard_dependencies = "deny"
+
+[package.metadata.cargo-machete]
+ignored = []
 
 [dependencies]
