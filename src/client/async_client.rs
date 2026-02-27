@@ -94,17 +94,7 @@ impl ZenMoneyClient {
     /// non-success status, or the response cannot be deserialized.
     #[inline]
     pub async fn diff(&self, request: &DiffRequest) -> Result<DiffResponse> {
-        let url = format!("{}{DIFF_PATH}", self.base_url);
-        let response = self
-            .http
-            .post(&url)
-            .header(AUTHORIZATION, format!("Bearer {}", self.token))
-            .header(CONTENT_TYPE, "application/json")
-            .json(request)
-            .send()
-            .await?;
-
-        Self::handle_response(response).await
+        self.post_json(DIFF_PATH, request).await
     }
 
     /// Gets category and payee suggestions via the `/v8/suggest/` endpoint.
@@ -115,13 +105,22 @@ impl ZenMoneyClient {
     /// non-success status, or the response cannot be deserialized.
     #[inline]
     pub async fn suggest(&self, request: &SuggestRequest) -> Result<SuggestResponse> {
-        let url = format!("{}{SUGGEST_PATH}", self.base_url);
+        self.post_json(SUGGEST_PATH, request).await
+    }
+
+    /// Sends an authenticated JSON POST request and deserializes the response.
+    async fn post_json<Req: serde::Serialize + Sync, Resp: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &Req,
+    ) -> Result<Resp> {
+        let url = format!("{}{path}", self.base_url);
         let response = self
             .http
             .post(&url)
             .header(AUTHORIZATION, format!("Bearer {}", self.token))
             .header(CONTENT_TYPE, "application/json")
-            .json(request)
+            .json(body)
             .send()
             .await?;
 
