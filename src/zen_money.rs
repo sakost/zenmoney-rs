@@ -6,9 +6,168 @@
 
 use crate::error::{Result, ZenMoneyError};
 use crate::models::{
-    AccountId, CompanyId, DiffResponse, InstrumentId, MerchantId, ReminderId, ReminderMarkerId,
-    TagId, TransactionId, UserId,
+    AccountId, CompanyId, DiffResponse, InstrumentId, MerchantId, NaiveDate, ReminderId,
+    ReminderMarkerId, TagId, Transaction, TransactionId, UserId,
 };
+
+/// Composable filter for querying transactions from storage.
+///
+/// Use builder-style methods to chain multiple criteria. All conditions
+/// are combined — a transaction must satisfy every set criterion to pass.
+///
+/// # Examples
+///
+/// ```
+/// use zenmoney_rs::zen_money::TransactionFilter;
+/// use zenmoney_rs::models::{AccountId, NaiveDate, TagId};
+///
+/// let filter = TransactionFilter::new()
+///     .date_range(
+///         NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+///         NaiveDate::from_ymd_opt(2024, 12, 31).unwrap(),
+///     )
+///     .account(AccountId::new("acc-1".to_owned()))
+///     .tag(TagId::new("tag-food".to_owned()));
+/// ```
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct TransactionFilter {
+    /// Start date (inclusive).
+    pub date_from: Option<NaiveDate>,
+    /// End date (inclusive).
+    pub date_to: Option<NaiveDate>,
+    /// Account ID (matches `income_account` or `outcome_account`).
+    pub account: Option<AccountId>,
+    /// Tag ID (matches if the transaction's tag list contains it).
+    pub tag: Option<TagId>,
+    /// Payee substring (case-insensitive).
+    pub payee: Option<String>,
+    /// Merchant ID.
+    pub merchant: Option<MerchantId>,
+    /// Minimum amount (matches if income >= val OR outcome >= val).
+    pub min_amount: Option<f64>,
+    /// Maximum amount (matches if income <= val AND outcome <= val).
+    pub max_amount: Option<f64>,
+}
+
+impl TransactionFilter {
+    /// Creates an empty filter that matches all transactions.
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Restricts to transactions within the given date range (inclusive).
+    #[inline]
+    #[must_use]
+    pub const fn date_range(mut self, from: NaiveDate, to: NaiveDate) -> Self {
+        self.date_from = Some(from);
+        self.date_to = Some(to);
+        self
+    }
+
+    /// Restricts to transactions involving the given account.
+    #[inline]
+    #[must_use]
+    pub fn account(mut self, id: AccountId) -> Self {
+        self.account = Some(id);
+        self
+    }
+
+    /// Restricts to transactions tagged with the given tag.
+    #[inline]
+    #[must_use]
+    pub fn tag(mut self, id: TagId) -> Self {
+        self.tag = Some(id);
+        self
+    }
+
+    /// Restricts to transactions whose payee contains the given
+    /// substring (case-insensitive).
+    #[inline]
+    #[must_use]
+    pub fn payee<T: Into<String>>(mut self, name: T) -> Self {
+        self.payee = Some(name.into());
+        self
+    }
+
+    /// Restricts to transactions with the given merchant.
+    #[inline]
+    #[must_use]
+    pub fn merchant(mut self, id: MerchantId) -> Self {
+        self.merchant = Some(id);
+        self
+    }
+
+    /// Restricts to transactions with amounts in the given range.
+    ///
+    /// A transaction matches if its income or outcome falls within
+    /// `[min, max]`.
+    #[inline]
+    #[must_use]
+    pub const fn amount_range(mut self, min: f64, max: f64) -> Self {
+        self.min_amount = Some(min);
+        self.max_amount = Some(max);
+        self
+    }
+
+    /// Returns `true` if the transaction satisfies all set criteria.
+    #[inline]
+    pub(crate) fn matches(&self, tx: &Transaction) -> bool {
+        self.matches_date(tx)
+            && self.matches_account(tx)
+            && self.matches_tag(tx)
+            && self.matches_payee(tx)
+            && self.matches_merchant(tx)
+            && self.matches_amount(tx)
+    }
+
+    /// Checks date range criteria.
+    fn matches_date(&self, tx: &Transaction) -> bool {
+        self.date_from.is_none_or(|from| tx.date >= from)
+            && self.date_to.is_none_or(|to| tx.date <= to)
+    }
+
+    /// Checks account criteria.
+    fn matches_account(&self, tx: &Transaction) -> bool {
+        self.account
+            .as_ref()
+            .is_none_or(|acc| tx.income_account == *acc || tx.outcome_account == *acc)
+    }
+
+    /// Checks tag criteria.
+    fn matches_tag(&self, tx: &Transaction) -> bool {
+        self.tag
+            .as_ref()
+            .is_none_or(|tag_id| tx.tag.as_ref().is_some_and(|tags| tags.contains(tag_id)))
+    }
+
+    /// Checks payee criteria.
+    fn matches_payee(&self, tx: &Transaction) -> bool {
+        self.payee.as_ref().is_none_or(|payee| {
+            let payee_lower = payee.to_lowercase();
+            tx.payee
+                .as_ref()
+                .is_some_and(|p| p.to_lowercase().contains(&payee_lower))
+        })
+    }
+
+    /// Checks merchant criteria.
+    fn matches_merchant(&self, tx: &Transaction) -> bool {
+        self.merchant
+            .as_ref()
+            .is_none_or(|merchant_id| tx.merchant.as_ref().is_some_and(|m| m == merchant_id))
+    }
+
+    /// Checks amount criteria.
+    fn matches_amount(&self, tx: &Transaction) -> bool {
+        self.min_amount
+            .is_none_or(|min| tx.income >= min || tx.outcome >= min)
+            && self
+                .max_amount
+                .is_none_or(|max| tx.income <= max && tx.outcome <= max)
+    }
+}
 
 /// Entity type strings used in [`crate::models::Deletion::object`].
 mod entity_type {
@@ -363,7 +522,22 @@ macro_rules! define_zen_money {
                 self.storage.budgets() $( .$await_ext )?
             }
 
+            /// Returns transactions matching the given filter.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the storage backend fails to read.
+            pub $($async_kw)? fn filter_transactions(
+                &self,
+                filter: &TransactionFilter,
+            ) -> Result<Vec<Transaction>> {
+                let all = self.storage.transactions() $( .$await_ext )? ?;
+                Ok(all.into_iter().filter(|tx| filter.matches(tx)).collect())
+            }
+
             /// Returns transactions within a date range (inclusive).
+            ///
+            /// This is a convenience wrapper around [`Self::filter_transactions`].
             ///
             /// # Errors
             ///
@@ -373,14 +547,13 @@ macro_rules! define_zen_money {
                 from: NaiveDate,
                 to: NaiveDate,
             ) -> Result<Vec<Transaction>> {
-                let all = self.storage.transactions() $( .$await_ext )? ?;
-                Ok(all
-                    .into_iter()
-                    .filter(|tx| tx.date >= from && tx.date <= to)
-                    .collect())
+                self.filter_transactions(&TransactionFilter::new().date_range(from, to))
+                    $( .$await_ext )?
             }
 
             /// Returns transactions for a specific account (income or outcome).
+            ///
+            /// This is a convenience wrapper around [`Self::filter_transactions`].
             ///
             /// # Errors
             ///
@@ -389,11 +562,9 @@ macro_rules! define_zen_money {
                 &self,
                 account_id: &AccountId,
             ) -> Result<Vec<Transaction>> {
-                let all = self.storage.transactions() $( .$await_ext )? ?;
-                Ok(all
-                    .into_iter()
-                    .filter(|tx| tx.income_account == *account_id || tx.outcome_account == *account_id)
-                    .collect())
+                self.filter_transactions(
+                    &TransactionFilter::new().account(account_id.clone()),
+                ) $( .$await_ext )?
             }
 
             /// Finds a tag by title (case-insensitive).
@@ -458,6 +629,300 @@ macro_rules! define_zen_money {
                 request: &SuggestRequest,
             ) -> Result<SuggestResponse> {
                 self.client.suggest(request) $( .$await_ext )?
+            }
+
+            // ── Push (create/update) methods ─────────────────────────
+
+            /// Helper: builds a [`DiffRequest`] pre-filled with sync timestamps.
+            $($async_kw)? fn base_diff_request(&self) -> Result<DiffRequest> {
+                let ts = self.storage.server_timestamp()
+                    $( .$await_ext )?
+                    ?
+                    .unwrap_or(DateTime::<Utc>::UNIX_EPOCH);
+                Ok(DiffRequest::sync_only(ts, Utc::now()))
+            }
+
+            /// Returns the user ID of the first stored user, or `0`
+            /// if no users have been synced yet.
+            $($async_kw)? fn current_user_id(&self) -> Result<i64> {
+                let users = self.storage.users() $( .$await_ext )? ?;
+                Ok(users.first().map_or(0, |u| u.id.into_inner()))
+            }
+
+            /// Pushes accounts to the server (create or update).
+            ///
+            /// The server uses the `changed` timestamp for conflict
+            /// resolution. Returns the server's diff response after
+            /// applying any resulting changes to local storage.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn push_accounts(
+                &self,
+                accounts: Vec<Account>,
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                request.account = accounts;
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Pushes transactions to the server (create or update).
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn push_transactions(
+                &self,
+                transactions: Vec<Transaction>,
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                request.transaction = transactions;
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Pushes tags to the server (create or update).
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn push_tags(
+                &self,
+                tags: Vec<Tag>,
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                request.tag = tags;
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Pushes merchants to the server (create or update).
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn push_merchants(
+                &self,
+                merchants: Vec<Merchant>,
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                request.merchant = merchants;
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Pushes reminders to the server (create or update).
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn push_reminders(
+                &self,
+                reminders: Vec<Reminder>,
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                request.reminder = reminders;
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Pushes reminder markers to the server (create or update).
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn push_reminder_markers(
+                &self,
+                markers: Vec<ReminderMarker>,
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                request.reminder_marker = markers;
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Pushes budgets to the server (create or update).
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn push_budgets(
+                &self,
+                budgets: Vec<Budget>,
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                request.budget = budgets;
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            // ── Delete methods ───────────────────────────────────────
+
+            /// Helper: builds deletion records for the given IDs.
+            fn build_deletions(
+                ids: impl Iterator<Item = String>,
+                object: &str,
+                stamp: DateTime<Utc>,
+                user: i64,
+            ) -> Vec<Deletion> {
+                ids.map(|id| Deletion {
+                    id,
+                    object: object.to_owned(),
+                    stamp,
+                    user,
+                })
+                .collect()
+            }
+
+            /// Deletes accounts by ID.
+            ///
+            /// Constructs [`Deletion`] records and sends them via the diff
+            /// endpoint. Returns the server's response after applying
+            /// changes to local storage.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn delete_accounts(
+                &self,
+                ids: &[AccountId],
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                let now = Utc::now();
+                let user = self.current_user_id() $( .$await_ext )? ?;
+                request.deletion = Self::build_deletions(
+                    ids.iter().map(ToString::to_string),
+                    entity_type::ACCOUNT,
+                    now,
+                    user,
+                );
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Deletes transactions by ID.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn delete_transactions(
+                &self,
+                ids: &[TransactionId],
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                let now = Utc::now();
+                let user = self.current_user_id() $( .$await_ext )? ?;
+                request.deletion = Self::build_deletions(
+                    ids.iter().map(ToString::to_string),
+                    entity_type::TRANSACTION,
+                    now,
+                    user,
+                );
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Deletes tags by ID.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn delete_tags(
+                &self,
+                ids: &[TagId],
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                let now = Utc::now();
+                let user = self.current_user_id() $( .$await_ext )? ?;
+                request.deletion = Self::build_deletions(
+                    ids.iter().map(ToString::to_string),
+                    entity_type::TAG,
+                    now,
+                    user,
+                );
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Deletes merchants by ID.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn delete_merchants(
+                &self,
+                ids: &[MerchantId],
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                let now = Utc::now();
+                let user = self.current_user_id() $( .$await_ext )? ?;
+                request.deletion = Self::build_deletions(
+                    ids.iter().map(ToString::to_string),
+                    entity_type::MERCHANT,
+                    now,
+                    user,
+                );
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Deletes reminders by ID.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn delete_reminders(
+                &self,
+                ids: &[ReminderId],
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                let now = Utc::now();
+                let user = self.current_user_id() $( .$await_ext )? ?;
+                request.deletion = Self::build_deletions(
+                    ids.iter().map(ToString::to_string),
+                    entity_type::REMINDER,
+                    now,
+                    user,
+                );
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
+            }
+
+            /// Deletes reminder markers by ID.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error if the HTTP request or storage update fails.
+            pub $($async_kw)? fn delete_reminder_markers(
+                &self,
+                ids: &[ReminderMarkerId],
+            ) -> Result<DiffResponse> {
+                let mut request = self.base_diff_request() $( .$await_ext )? ?;
+                let now = Utc::now();
+                let user = self.current_user_id() $( .$await_ext )? ?;
+                request.deletion = Self::build_deletions(
+                    ids.iter().map(ToString::to_string),
+                    entity_type::REMINDER_MARKER,
+                    now,
+                    user,
+                );
+                let response = self.client.diff(&request) $( .$await_ext )? ?;
+                self.apply_diff(&response) $( .$await_ext )? ?;
+                Ok(response)
             }
 
             /// Returns a reference to the underlying HTTP client.
@@ -579,14 +1044,15 @@ mod async_zen_money {
     use crate::client::ZenMoneyClient;
     use crate::error::{Result, ZenMoneyError};
     use crate::models::{
-        Account, AccountId, Budget, Company, Country, DiffRequest, DiffResponse, Instrument,
-        InstrumentId, Merchant, NaiveDate, Reminder, ReminderMarker, SuggestRequest,
-        SuggestResponse, Tag, Transaction, User,
+        Account, AccountId, Budget, Company, Country, Deletion, DiffRequest, DiffResponse,
+        Instrument, InstrumentId, Merchant, MerchantId, NaiveDate, Reminder, ReminderId,
+        ReminderMarker, ReminderMarkerId, SuggestRequest, SuggestResponse, Tag, TagId, Transaction,
+        TransactionId, User,
     };
     use crate::storage::Storage;
     use chrono::{DateTime, Utc};
 
-    use super::GroupedDeletions;
+    use super::{GroupedDeletions, TransactionFilter, entity_type};
 
     define_zen_money! {
         client_name: ZenMoney,
@@ -610,14 +1076,15 @@ mod blocking_zen_money {
     use crate::client::ZenMoneyBlockingClient;
     use crate::error::{Result, ZenMoneyError};
     use crate::models::{
-        Account, AccountId, Budget, Company, Country, DiffRequest, DiffResponse, Instrument,
-        InstrumentId, Merchant, NaiveDate, Reminder, ReminderMarker, SuggestRequest,
-        SuggestResponse, Tag, Transaction, User,
+        Account, AccountId, Budget, Company, Country, Deletion, DiffRequest, DiffResponse,
+        Instrument, InstrumentId, Merchant, MerchantId, NaiveDate, Reminder, ReminderId,
+        ReminderMarker, ReminderMarkerId, SuggestRequest, SuggestResponse, Tag, TagId, Transaction,
+        TransactionId, User,
     };
     use crate::storage::BlockingStorage;
     use chrono::{DateTime, Utc};
 
-    use super::GroupedDeletions;
+    use super::{GroupedDeletions, TransactionFilter, entity_type};
 
     define_zen_money! {
         client_name: ZenMoneyBlocking,
@@ -947,6 +1414,294 @@ mod tests {
         }
     }
 
+    /// Creates a transaction with additional fields for filter testing.
+    fn test_transaction_full(
+        id: &str,
+        account_id: &str,
+        date: NaiveDate,
+        income: f64,
+        outcome: f64,
+        tag: Option<Vec<TagId>>,
+        payee: Option<&str>,
+        merchant: Option<MerchantId>,
+    ) -> Transaction {
+        let mut tx = test_transaction(id, account_id, date);
+        tx.income = income;
+        tx.outcome = outcome;
+        tx.tag = tag;
+        tx.payee = payee.map(ToOwned::to_owned);
+        tx.merchant = merchant;
+        tx
+    }
+
+    #[test]
+    fn filter_default_matches_all() {
+        let filter = TransactionFilter::new();
+        let tx = test_transaction("tx-1", "a-1", NaiveDate::from_ymd_opt(2024, 6, 15).unwrap());
+        assert!(filter.matches(&tx));
+    }
+
+    #[test]
+    fn filter_date_range() {
+        let filter = TransactionFilter::new().date_range(
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2024, 6, 30).unwrap(),
+        );
+        let inside = test_transaction("t1", "a-1", NaiveDate::from_ymd_opt(2024, 3, 15).unwrap());
+        let before = test_transaction("t2", "a-1", NaiveDate::from_ymd_opt(2023, 12, 31).unwrap());
+        let after = test_transaction("t3", "a-1", NaiveDate::from_ymd_opt(2024, 7, 1).unwrap());
+        let on_boundary =
+            test_transaction("t4", "a-1", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+
+        assert!(filter.matches(&inside));
+        assert!(!filter.matches(&before));
+        assert!(!filter.matches(&after));
+        assert!(filter.matches(&on_boundary));
+    }
+
+    #[test]
+    fn filter_account() {
+        let filter = TransactionFilter::new().account(AccountId::new("acc-target".to_owned()));
+        let matching = test_transaction(
+            "t1",
+            "acc-target",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+        );
+        let not_matching = test_transaction(
+            "t2",
+            "acc-other",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+        );
+
+        assert!(filter.matches(&matching));
+        assert!(!filter.matches(&not_matching));
+    }
+
+    #[test]
+    fn filter_account_matches_income_account() {
+        let filter = TransactionFilter::new().account(AccountId::new("acc-target".to_owned()));
+        let mut tx = test_transaction(
+            "t1",
+            "acc-other",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+        );
+        tx.income_account = AccountId::new("acc-target".to_owned());
+
+        assert!(filter.matches(&tx));
+    }
+
+    #[test]
+    fn filter_tag() {
+        let tag_id = TagId::new("tag-food".to_owned());
+        let filter = TransactionFilter::new().tag(tag_id.clone());
+
+        let with_tag = test_transaction_full(
+            "t1",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            Some(vec![tag_id]),
+            None,
+            None,
+        );
+        let without_tag = test_transaction_full(
+            "t2",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            None,
+            None,
+            None,
+        );
+        let other_tag = test_transaction_full(
+            "t3",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            Some(vec![TagId::new("tag-other".to_owned())]),
+            None,
+            None,
+        );
+
+        assert!(filter.matches(&with_tag));
+        assert!(!filter.matches(&without_tag));
+        assert!(!filter.matches(&other_tag));
+    }
+
+    #[test]
+    fn filter_payee_case_insensitive() {
+        let filter = TransactionFilter::new().payee("coffee");
+
+        let matching = test_transaction_full(
+            "t1",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            None,
+            Some("Coffee Shop"),
+            None,
+        );
+        let not_matching = test_transaction_full(
+            "t2",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            None,
+            Some("Restaurant"),
+            None,
+        );
+        let no_payee = test_transaction_full(
+            "t3",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            None,
+            None,
+            None,
+        );
+
+        assert!(filter.matches(&matching));
+        assert!(!filter.matches(&not_matching));
+        assert!(!filter.matches(&no_payee));
+    }
+
+    #[test]
+    fn filter_merchant() {
+        let merchant_id = MerchantId::new("m-1".to_owned());
+        let filter = TransactionFilter::new().merchant(merchant_id.clone());
+
+        let matching = test_transaction_full(
+            "t1",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            None,
+            None,
+            Some(merchant_id),
+        );
+        let not_matching = test_transaction_full(
+            "t2",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            None,
+            None,
+            None,
+        );
+
+        assert!(filter.matches(&matching));
+        assert!(!filter.matches(&not_matching));
+    }
+
+    #[test]
+    fn filter_amount_range() {
+        let filter = TransactionFilter::new().amount_range(50.0, 200.0);
+
+        let in_range = test_transaction_full(
+            "t1",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            None,
+            None,
+            None,
+        );
+        let below_range = test_transaction_full(
+            "t2",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            10.0,
+            None,
+            None,
+            None,
+        );
+        let above_range = test_transaction_full(
+            "t3",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            0.0,
+            500.0,
+            None,
+            None,
+            None,
+        );
+        // Income in range even though outcome is 0.
+        let income_in_range = test_transaction_full(
+            "t4",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            150.0,
+            0.0,
+            None,
+            None,
+            None,
+        );
+
+        assert!(filter.matches(&in_range));
+        assert!(!filter.matches(&below_range));
+        assert!(!filter.matches(&above_range));
+        assert!(filter.matches(&income_in_range));
+    }
+
+    #[test]
+    fn filter_combined_criteria() {
+        let filter = TransactionFilter::new()
+            .date_range(
+                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2024, 12, 31).unwrap(),
+            )
+            .account(AccountId::new("a-1".to_owned()))
+            .payee("coffee");
+
+        // Matches all criteria.
+        let matching = test_transaction_full(
+            "t1",
+            "a-1",
+            NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(),
+            0.0,
+            100.0,
+            None,
+            Some("Coffee Shop"),
+            None,
+        );
+        // Wrong account.
+        let wrong_account = test_transaction_full(
+            "t2",
+            "a-2",
+            NaiveDate::from_ymd_opt(2024, 6, 15).unwrap(),
+            0.0,
+            100.0,
+            None,
+            Some("Coffee Shop"),
+            None,
+        );
+        // Wrong date.
+        let wrong_date = test_transaction_full(
+            "t3",
+            "a-1",
+            NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            0.0,
+            100.0,
+            None,
+            Some("Coffee Shop"),
+            None,
+        );
+
+        assert!(filter.matches(&matching));
+        assert!(!filter.matches(&wrong_account));
+        assert!(!filter.matches(&wrong_date));
+    }
+
     #[test]
     fn grouped_deletions_parses_entity_types() {
         let response = DiffResponse {
@@ -1149,6 +1904,74 @@ mod tests {
                 .filter(|tx| tx.date >= from && tx.date <= to)
                 .collect();
             assert_eq!(filtered.len(), 2);
+        }
+
+        #[test]
+        fn filter_transactions_via_storage() {
+            let storage = MockStorage::default();
+            let tx1 = test_transaction_full(
+                "tx-1",
+                "a-1",
+                NaiveDate::from_ymd_opt(2024, 1, 15).unwrap(),
+                0.0,
+                100.0,
+                None,
+                Some("Coffee Shop"),
+                None,
+            );
+            let tx2 = test_transaction_full(
+                "tx-2",
+                "a-2",
+                NaiveDate::from_ymd_opt(2024, 2, 15).unwrap(),
+                0.0,
+                200.0,
+                Some(vec![TagId::new("tag-food".to_owned())]),
+                Some("Restaurant"),
+                None,
+            );
+            let tx3 = test_transaction_full(
+                "tx-3",
+                "a-1",
+                NaiveDate::from_ymd_opt(2024, 3, 15).unwrap(),
+                500.0,
+                0.0,
+                None,
+                None,
+                None,
+            );
+            storage.upsert_transactions(vec![tx1, tx2, tx3]).unwrap();
+
+            // Filter by payee.
+            let filter = TransactionFilter::new().payee("coffee");
+            let results: Vec<Transaction> = storage
+                .transactions()
+                .unwrap()
+                .into_iter()
+                .filter(|tx| filter.matches(tx))
+                .collect();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, TransactionId::new("tx-1".to_owned()));
+
+            // Filter by tag.
+            let filter = TransactionFilter::new().tag(TagId::new("tag-food".to_owned()));
+            let results: Vec<Transaction> = storage
+                .transactions()
+                .unwrap()
+                .into_iter()
+                .filter(|tx| filter.matches(tx))
+                .collect();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, TransactionId::new("tx-2".to_owned()));
+
+            // Filter by amount.
+            let filter = TransactionFilter::new().amount_range(150.0, 600.0);
+            let results: Vec<Transaction> = storage
+                .transactions()
+                .unwrap()
+                .into_iter()
+                .filter(|tx| filter.matches(tx))
+                .collect();
+            assert_eq!(results.len(), 2);
         }
 
         #[test]

@@ -7,17 +7,16 @@
 use std::io::{self, Write as _};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Table};
 use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;
 use zenmoney_rs::models::{
-    Account, AccountId, DiffResponse, NaiveDate, SuggestRequest, SuggestResponse, Tag, TagId,
-    Transaction,
+    Account, DiffResponse, NaiveDate, SuggestRequest, SuggestResponse, Tag, TagId, Transaction,
 };
 use zenmoney_rs::storage::{BlockingStorage, FileStorage};
-use zenmoney_rs::zen_money::ZenMoneyBlocking;
+use zenmoney_rs::zen_money::{TransactionFilter, ZenMoneyBlocking};
 
 /// Environment variable name for the API token.
 const TOKEN_ENV: &str = "ZENMONEY_TOKEN";
@@ -40,18 +39,9 @@ enum Command {
     FullSync,
     /// List active (non-archived) accounts.
     Accounts,
-    /// List transactions, optionally filtered by date range or account.
-    Transactions {
-        /// Start date (inclusive, YYYY-MM-DD). Requires --to.
-        #[arg(long, requires = "to", value_parser = parse_date)]
-        from: Option<NaiveDate>,
-        /// End date (inclusive, YYYY-MM-DD). Requires --from.
-        #[arg(long, requires = "from", value_parser = parse_date)]
-        to: Option<NaiveDate>,
-        /// Filter by account title (case-insensitive).
-        #[arg(long)]
-        account: Option<String>,
-    },
+    /// List transactions, optionally filtered by date range, account,
+    /// tag, payee, or amount.
+    Transactions(TransactionArgs),
     /// List all tags.
     Tags,
     /// Get category suggestions for a payee or comment.
@@ -63,6 +53,32 @@ enum Command {
         #[arg(long)]
         comment: Option<String>,
     },
+}
+
+/// Arguments for the `transactions` subcommand.
+#[derive(Debug, Args)]
+struct TransactionArgs {
+    /// Start date (inclusive, YYYY-MM-DD). Requires --to.
+    #[arg(long, requires = "to", value_parser = parse_date)]
+    from: Option<NaiveDate>,
+    /// End date (inclusive, YYYY-MM-DD). Requires --from.
+    #[arg(long, requires = "from", value_parser = parse_date)]
+    to: Option<NaiveDate>,
+    /// Filter by account title (case-insensitive).
+    #[arg(long)]
+    account: Option<String>,
+    /// Filter by tag title (case-insensitive).
+    #[arg(long)]
+    tag: Option<String>,
+    /// Filter by payee name (case-insensitive substring match).
+    #[arg(long)]
+    payee: Option<String>,
+    /// Minimum transaction amount (income or outcome).
+    #[arg(long)]
+    min_amount: Option<f64>,
+    /// Maximum transaction amount (income and outcome).
+    #[arg(long)]
+    max_amount: Option<f64>,
 }
 
 /// Parses a date string in `YYYY-MM-DD` format for clap.
@@ -156,9 +172,7 @@ fn dispatch<S: BlockingStorage>(
         Command::Diff => cmd_diff(client),
         Command::FullSync => cmd_full_sync(client),
         Command::Accounts => cmd_accounts(client),
-        Command::Transactions { from, to, account } => {
-            cmd_transactions(client, from, to, account.as_deref())
-        }
+        Command::Transactions(args) => cmd_transactions(client, &args),
         Command::Tags => cmd_tags(client),
         Command::Suggest { payee, comment } => cmd_suggest(client, payee, comment),
     }
@@ -227,55 +241,81 @@ fn cmd_accounts<S: BlockingStorage>(client: &ZenMoneyBlocking<S>) -> io::Result<
     }
 }
 
+/// Resolves a named entity to its ID, printing an error on failure.
+///
+/// Returns `Ok(Some(id))` on success, `Ok(None)` if the entity was not
+/// found (error already printed), or `Err` on I/O failure.
+fn resolve_name<T, F>(label: &str, name: &str, lookup: F) -> io::Result<Option<T>>
+where
+    F: FnOnce(&str) -> zenmoney_rs::error::Result<Option<T>>,
+{
+    match lookup(name) {
+        Ok(Some(value)) => Ok(Some(value)),
+        Ok(None) => {
+            writeln!(
+                io::stderr().lock(),
+                "{} {label} not found: {name}",
+                "error:".red().bold()
+            )?;
+            Ok(None)
+        }
+        Err(err) => {
+            writeln!(
+                io::stderr().lock(),
+                "{} failed to look up {label}: {err}",
+                "error:".red().bold()
+            )?;
+            Ok(None)
+        }
+    }
+}
+
+/// Builds a [`TransactionFilter`] from CLI arguments, resolving names
+/// to IDs via the client.
+fn build_transaction_filter<S: BlockingStorage>(
+    client: &ZenMoneyBlocking<S>,
+    args: &TransactionArgs,
+) -> io::Result<Option<TransactionFilter>> {
+    let mut filter = TransactionFilter::new();
+
+    if let Some((from_date, to_date)) = args.from.zip(args.to) {
+        filter = filter.date_range(from_date, to_date);
+    }
+    if let Some(name) = args.account.as_deref() {
+        let Some(acc) = resolve_name("account", name, |n| client.find_account_by_title(n))? else {
+            return Ok(None);
+        };
+        filter = filter.account(acc.id);
+    }
+    if let Some(name) = args.tag.as_deref() {
+        let Some(t) = resolve_name("tag", name, |n| client.find_tag_by_title(n))? else {
+            return Ok(None);
+        };
+        filter = filter.tag(t.id);
+    }
+    if let Some(payee_str) = args.payee.as_deref() {
+        filter = filter.payee(payee_str);
+    }
+    match (args.min_amount, args.max_amount) {
+        (Some(min), Some(max)) => filter = filter.amount_range(min, max),
+        (Some(min), None) => filter.min_amount = Some(min),
+        (None, Some(max)) => filter.max_amount = Some(max),
+        (None, None) => {}
+    }
+    Ok(Some(filter))
+}
+
 /// Executes the `transactions` subcommand: lists transactions with
 /// optional filters.
 fn cmd_transactions<S: BlockingStorage>(
     client: &ZenMoneyBlocking<S>,
-    from: Option<NaiveDate>,
-    to: Option<NaiveDate>,
-    account: Option<&str>,
+    args: &TransactionArgs,
 ) -> io::Result<ExitCode> {
-    // Resolve account name to ID if provided.
-    let account_id: Option<AccountId> = if let Some(name) = account {
-        match client.find_account_by_title(name) {
-            Ok(Some(acc)) => Some(acc.id),
-            Ok(None) => {
-                writeln!(
-                    io::stderr().lock(),
-                    "{} account not found: {name}",
-                    "error:".red().bold()
-                )?;
-                return Ok(ExitCode::FAILURE);
-            }
-            Err(err) => {
-                writeln!(
-                    io::stderr().lock(),
-                    "{} failed to look up account: {err}",
-                    "error:".red().bold()
-                )?;
-                return Ok(ExitCode::FAILURE);
-            }
-        }
-    } else {
-        None
+    let Some(filter) = build_transaction_filter(client, args)? else {
+        return Ok(ExitCode::FAILURE);
     };
 
-    let date_range = from.zip(to);
-
-    let transactions = match (date_range, account_id.as_ref()) {
-        (Some((from_date, to_date)), Some(acc_id)) => {
-            client.transactions_by_date(from_date, to_date).map(|txs| {
-                txs.into_iter()
-                    .filter(|tx| tx.income_account == *acc_id || tx.outcome_account == *acc_id)
-                    .collect()
-            })
-        }
-        (Some((from_date, to_date)), None) => client.transactions_by_date(from_date, to_date),
-        (None, Some(acc_id)) => client.transactions_by_account(acc_id),
-        (None, None) => client.transactions(),
-    };
-
-    match transactions {
+    match client.filter_transactions(&filter) {
         Ok(txs) => {
             print_transactions_table(&txs)?;
             Ok(ExitCode::SUCCESS)
