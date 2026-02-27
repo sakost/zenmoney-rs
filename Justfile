@@ -47,7 +47,7 @@ coverage-html:
 
 # Detect copy-paste code
 jscpd:
-    jscpd src/
+    npx jscpd src/
 
 # Compute code metrics
 metrics:

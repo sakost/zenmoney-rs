@@ -3,6 +3,21 @@
 /// All errors that can occur when using the ZenMoney client.
 #[derive(Debug, thiserror::Error)]
 pub enum ZenMoneyError {
+    /// HTTP request failed.
+    #[cfg(feature = "async")]
+    #[error("HTTP error: {0}")]
+    Http(#[from] reqwest::Error),
+
+    /// API returned a non-success status code.
+    #[cfg(feature = "async")]
+    #[error("API error (status {status}): {message}")]
+    Api {
+        /// HTTP status code.
+        status: u16,
+        /// Error message from the API response body.
+        message: String,
+    },
+
     /// JSON serialization or deserialization failed.
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
@@ -14,7 +29,15 @@ pub enum ZenMoneyError {
     /// Access token has expired and cannot be refreshed.
     #[error("access token expired and no refresh mechanism is available")]
     TokenExpired,
+
+    /// OAuth flow error.
+    #[cfg(feature = "oauth")]
+    #[error("OAuth error: {0}")]
+    OAuth(String),
 }
+
+/// Convenience type alias for results using [`ZenMoneyError`].
+pub type Result<T> = core::result::Result<T, ZenMoneyError>;
 
 #[cfg(test)]
 mod tests {
@@ -42,6 +65,18 @@ mod tests {
     fn error_token_expired_display() {
         let err = ZenMoneyError::TokenExpired;
         assert!(err.to_string().contains("expired"));
+    }
+
+    #[cfg(feature = "async")]
+    #[test]
+    fn error_api_display() {
+        let err = ZenMoneyError::Api {
+            status: 401,
+            message: "Unauthorized".to_owned(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("401"));
+        assert!(msg.contains("Unauthorized"));
     }
 
     #[test]

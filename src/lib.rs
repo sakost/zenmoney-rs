@@ -3,5 +3,7 @@
 //! This crate provides a typed client for interacting with the
 //! [ZenMoney](https://zenmoney.ru/) personal finance API.
 
+#[cfg(feature = "async")]
+pub mod client;
 pub mod error;
 pub mod models;
