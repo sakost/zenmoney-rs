@@ -4,12 +4,12 @@
 #[derive(Debug, thiserror::Error)]
 pub enum ZenMoneyError {
     /// HTTP request failed.
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
     /// API returned a non-success status code.
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[error("API error (status {status}): {message}")]
     Api {
         /// HTTP status code.
@@ -67,7 +67,7 @@ mod tests {
         assert!(err.to_string().contains("expired"));
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     #[test]
     fn error_api_display() {
         let err = ZenMoneyError::Api {
