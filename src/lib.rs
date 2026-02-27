@@ -7,3 +7,7 @@
 pub mod client;
 pub mod error;
 pub mod models;
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub mod storage;
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub mod zen_money;

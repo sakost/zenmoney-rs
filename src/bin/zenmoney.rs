@@ -11,27 +11,17 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Table};
 use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;
-use zenmoney_rs::client::ZenMoneyBlockingClient;
-use zenmoney_rs::models::{
-    DateTime, DiffRequest, DiffResponse, SuggestRequest, SuggestResponse, TagId, Utc,
-};
+use zenmoney_rs::models::{DiffResponse, SuggestRequest, SuggestResponse, TagId};
+use zenmoney_rs::storage::{BlockingStorage, FileStorage};
+use zenmoney_rs::zen_money::ZenMoneyBlocking;
 
 /// Environment variable name for the API token.
 const TOKEN_ENV: &str = "ZENMONEY_TOKEN";
 
-/// Runs the CLI, returning an appropriate exit code.
-fn run() -> io::Result<ExitCode> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
-
-    let _dotenv = dotenvy::dotenv();
-
-    let token = match std::env::var(TOKEN_ENV) {
-        Ok(val) if !val.is_empty() => val,
+/// Reads the API token from the environment.
+fn read_token() -> io::Result<Option<String>> {
+    match std::env::var(TOKEN_ENV) {
+        Ok(val) if !val.is_empty() => Ok(Some(val)),
         _ => {
             let mut err = io::stderr().lock();
             writeln!(
@@ -46,11 +36,43 @@ fn run() -> io::Result<ExitCode> {
                 "hint:".cyan(),
                 TOKEN_ENV
             )?;
+            Ok(None)
+        }
+    }
+}
+
+/// Runs the CLI, returning an appropriate exit code.
+fn run() -> io::Result<ExitCode> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
+    let _dotenv = dotenvy::dotenv();
+
+    let Some(token) = read_token()? else {
+        return Ok(ExitCode::FAILURE);
+    };
+
+    let storage = match create_storage() {
+        Ok(storage) => storage,
+        Err(err) => {
+            writeln!(
+                io::stderr().lock(),
+                "{} failed to initialize storage: {err}",
+                "error:".red().bold()
+            )?;
             return Ok(ExitCode::FAILURE);
         }
     };
 
-    let client = match ZenMoneyBlockingClient::builder().token(token).build() {
+    let client = match ZenMoneyBlocking::builder()
+        .token(token)
+        .storage(storage)
+        .build()
+    {
         Ok(client) => client,
         Err(err) => {
             writeln!(
@@ -75,13 +97,17 @@ fn run() -> io::Result<ExitCode> {
     }
 }
 
-/// Executes the `diff` subcommand: full sync and display results.
-fn cmd_diff(client: &ZenMoneyBlockingClient) -> io::Result<ExitCode> {
+/// Creates the storage backend in the default XDG data directory.
+fn create_storage() -> zenmoney_rs::error::Result<FileStorage> {
+    let dir = FileStorage::default_dir()?;
+    FileStorage::new(dir)
+}
+
+/// Executes the `diff` subcommand: incremental sync and display results.
+fn cmd_diff<S: BlockingStorage>(client: &ZenMoneyBlocking<S>) -> io::Result<ExitCode> {
     let spinner = make_spinner("Syncing with ZenMoney API...");
 
-    let request = DiffRequest::sync_only(DateTime::<Utc>::UNIX_EPOCH, Utc::now());
-
-    match client.diff(&request) {
+    match client.sync() {
         Ok(response) => {
             spinner.finish_and_clear();
             print_diff_summary(&response)?;
@@ -91,7 +117,7 @@ fn cmd_diff(client: &ZenMoneyBlockingClient) -> io::Result<ExitCode> {
             spinner.finish_and_clear();
             writeln!(
                 io::stderr().lock(),
-                "{} diff failed: {err}",
+                "{} sync failed: {err}",
                 "error:".red().bold()
             )?;
             Ok(ExitCode::FAILURE)
@@ -140,7 +166,10 @@ fn parse_suggest_args(args: &[String]) -> io::Result<Option<SuggestRequest>> {
 }
 
 /// Executes the `suggest` subcommand: query suggestions for payee/comment.
-fn cmd_suggest(client: &ZenMoneyBlockingClient, args: &[String]) -> io::Result<ExitCode> {
+fn cmd_suggest<S: BlockingStorage>(
+    client: &ZenMoneyBlocking<S>,
+    args: &[String],
+) -> io::Result<ExitCode> {
     let Some(request) = parse_suggest_args(args)? else {
         return Ok(ExitCode::FAILURE);
     };
@@ -249,7 +278,7 @@ fn print_usage() -> io::Result<()> {
     writeln!(out, "{}", "Usage:".yellow().bold())?;
     writeln!(
         out,
-        "  zenmoney diff                       Full sync from server"
+        "  zenmoney diff                       Incremental sync from server"
     )?;
     writeln!(
         out,
@@ -265,6 +294,12 @@ fn print_usage() -> io::Result<()> {
     writeln!(
         out,
         "  RUST_LOG          Tracing filter (e.g. debug, trace)"
+    )?;
+    writeln!(out)?;
+    writeln!(out, "{}", "Data:".yellow().bold())?;
+    writeln!(
+        out,
+        "  Synced data is stored in ~/.local/share/zenmoney-rs/"
     )?;
     Ok(())
 }

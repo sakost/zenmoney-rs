@@ -26,6 +26,10 @@ pub enum ZenMoneyError {
     #[error("token storage error: {0}")]
     TokenStorage(Box<dyn core::error::Error + Send + Sync>),
 
+    /// Storage backend operation failed.
+    #[error("storage error: {0}")]
+    Storage(Box<dyn core::error::Error + Send + Sync>),
+
     /// Access token has expired and cannot be refreshed.
     #[error("access token expired and no refresh mechanism is available")]
     TokenExpired,
@@ -59,6 +63,15 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("token storage error"));
         assert!(msg.contains("file missing"));
+    }
+
+    #[test]
+    fn error_storage_display() {
+        let inner = std::io::Error::new(std::io::ErrorKind::Other, "disk full");
+        let err = ZenMoneyError::Storage(Box::new(inner));
+        let msg = err.to_string();
+        assert!(msg.contains("storage error"));
+        assert!(msg.contains("disk full"));
     }
 
     #[test]
