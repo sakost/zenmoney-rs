@@ -121,7 +121,7 @@ use_debug = "deny"
 wildcard_dependencies = "deny"
 
 [package.metadata.cargo-machete]
-ignored = ["chrono", "secrecy", "reqwest", "url", "comfy-table", "dirs", "dotenvy", "indicatif", "owo-colors", "tracing-subscriber"]
+ignored = ["chrono", "clap", "secrecy", "reqwest", "url", "comfy-table", "dirs", "dotenvy", "indicatif", "owo-colors", "tracing-subscriber"]
 
 [dev-dependencies]
 tempfile = "3"
@@ -129,6 +129,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [dependencies]
 chrono = { version = "0.4.44", default-features = false, features = ["serde", "clock"] }
+clap = { version = "4", features = ["derive"], optional = true }
 comfy-table = { version = "7.2.2", optional = true }
 dirs = { version = "6", optional = true }
 dotenvy = { version = "0.15.7", optional = true }
@@ -147,7 +148,7 @@ url = { version = "2.5.8", optional = true }
 default = ["async", "storage-file", "cli"]
 async = ["dep:reqwest"]
 blocking = ["dep:reqwest", "reqwest/blocking"]
-cli = ["blocking", "dep:dotenvy", "dep:tracing-subscriber", "dep:comfy-table", "dep:owo-colors", "dep:indicatif"]
+cli = ["blocking", "dep:clap", "dep:dotenvy", "dep:tracing-subscriber", "dep:comfy-table", "dep:owo-colors", "dep:indicatif"]
 oauth = ["dep:url"]
 storage-file = ["dep:dirs"]
 storage-sqlx = []

@@ -7,16 +7,68 @@
 use std::io::{self, Write as _};
 use std::process::ExitCode;
 
+use clap::{Parser, Subcommand};
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, Color, Table};
 use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;
-use zenmoney_rs::models::{DiffResponse, SuggestRequest, SuggestResponse, TagId};
+use zenmoney_rs::models::{
+    Account, AccountId, DiffResponse, NaiveDate, SuggestRequest, SuggestResponse, Tag, TagId,
+    Transaction,
+};
 use zenmoney_rs::storage::{BlockingStorage, FileStorage};
 use zenmoney_rs::zen_money::ZenMoneyBlocking;
 
 /// Environment variable name for the API token.
 const TOKEN_ENV: &str = "ZENMONEY_TOKEN";
+
+/// ZenMoney API CLI — sync and browse personal finance data.
+#[derive(Debug, Parser)]
+#[command(name = "zenmoney", version, about)]
+struct Cli {
+    /// Subcommand to execute.
+    #[command(subcommand)]
+    command: Command,
+}
+
+/// Available subcommands.
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Incremental sync from the ZenMoney server.
+    Diff,
+    /// Clear local storage and re-sync everything from scratch.
+    FullSync,
+    /// List active (non-archived) accounts.
+    Accounts,
+    /// List transactions, optionally filtered by date range or account.
+    Transactions {
+        /// Start date (inclusive, YYYY-MM-DD). Requires --to.
+        #[arg(long, requires = "to", value_parser = parse_date)]
+        from: Option<NaiveDate>,
+        /// End date (inclusive, YYYY-MM-DD). Requires --from.
+        #[arg(long, requires = "from", value_parser = parse_date)]
+        to: Option<NaiveDate>,
+        /// Filter by account title (case-insensitive).
+        #[arg(long)]
+        account: Option<String>,
+    },
+    /// List all tags.
+    Tags,
+    /// Get category suggestions for a payee or comment.
+    Suggest {
+        /// Payee name to get suggestions for.
+        #[arg(long)]
+        payee: Option<String>,
+        /// Comment text to get suggestions for.
+        #[arg(long)]
+        comment: Option<String>,
+    },
+}
+
+/// Parses a date string in `YYYY-MM-DD` format for clap.
+fn parse_date(s: &str) -> Result<NaiveDate, String> {
+    NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|err| format!("{err}"))
+}
 
 /// Reads the API token from the environment.
 fn read_token() -> io::Result<Option<String>> {
@@ -52,6 +104,8 @@ fn run() -> io::Result<ExitCode> {
 
     let _dotenv = dotenvy::dotenv();
 
+    let cli = Cli::parse();
+
     let Some(token) = read_token()? else {
         return Ok(ExitCode::FAILURE);
     };
@@ -84,23 +138,30 @@ fn run() -> io::Result<ExitCode> {
         }
     };
 
-    let args: Vec<String> = std::env::args().collect();
-    let command = args.get(1).map(String::as_str);
-
-    match command {
-        Some("diff") => cmd_diff(&client),
-        Some("suggest") => cmd_suggest(&client, &args),
-        _ => {
-            print_usage()?;
-            Ok(ExitCode::FAILURE)
-        }
-    }
+    dispatch(&client, cli.command)
 }
 
 /// Creates the storage backend in the default XDG data directory.
 fn create_storage() -> zenmoney_rs::error::Result<FileStorage> {
     let dir = FileStorage::default_dir()?;
     FileStorage::new(dir)
+}
+
+/// Dispatches to the appropriate subcommand handler.
+fn dispatch<S: BlockingStorage>(
+    client: &ZenMoneyBlocking<S>,
+    command: Command,
+) -> io::Result<ExitCode> {
+    match command {
+        Command::Diff => cmd_diff(client),
+        Command::FullSync => cmd_full_sync(client),
+        Command::Accounts => cmd_accounts(client),
+        Command::Transactions { from, to, account } => {
+            cmd_transactions(client, from, to, account.as_deref())
+        }
+        Command::Tags => cmd_tags(client),
+        Command::Suggest { payee, comment } => cmd_suggest(client, payee, comment),
+    }
 }
 
 /// Executes the `diff` subcommand: incremental sync and display results.
@@ -125,55 +186,146 @@ fn cmd_diff<S: BlockingStorage>(client: &ZenMoneyBlocking<S>) -> io::Result<Exit
     }
 }
 
-/// Parses `--payee` and `--comment` arguments from the argument list.
-fn parse_suggest_args(args: &[String]) -> io::Result<Option<SuggestRequest>> {
-    let mut payee = None;
-    let mut comment = None;
-    let mut idx = 2_usize;
-    while idx < args.len() {
-        match args.get(idx).map(String::as_str) {
-            Some("--payee") => {
-                idx += 1;
-                payee = args.get(idx).cloned();
-            }
-            Some("--comment") => {
-                idx += 1;
-                comment = args.get(idx).cloned();
-            }
-            Some(other) => {
+/// Executes the `full-sync` subcommand: clears storage and re-syncs
+/// from scratch.
+fn cmd_full_sync<S: BlockingStorage>(client: &ZenMoneyBlocking<S>) -> io::Result<ExitCode> {
+    let spinner = make_spinner("Full sync from ZenMoney API...");
+
+    match client.full_sync() {
+        Ok(response) => {
+            spinner.finish_and_clear();
+            print_diff_summary(&response)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(err) => {
+            spinner.finish_and_clear();
+            writeln!(
+                io::stderr().lock(),
+                "{} full sync failed: {err}",
+                "error:".red().bold()
+            )?;
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// Executes the `accounts` subcommand: lists all active accounts.
+fn cmd_accounts<S: BlockingStorage>(client: &ZenMoneyBlocking<S>) -> io::Result<ExitCode> {
+    match client.active_accounts() {
+        Ok(accounts) => {
+            print_accounts_table(&accounts)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(err) => {
+            writeln!(
+                io::stderr().lock(),
+                "{} failed to read accounts: {err}",
+                "error:".red().bold()
+            )?;
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// Executes the `transactions` subcommand: lists transactions with
+/// optional filters.
+fn cmd_transactions<S: BlockingStorage>(
+    client: &ZenMoneyBlocking<S>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+    account: Option<&str>,
+) -> io::Result<ExitCode> {
+    // Resolve account name to ID if provided.
+    let account_id: Option<AccountId> = if let Some(name) = account {
+        match client.find_account_by_title(name) {
+            Ok(Some(acc)) => Some(acc.id),
+            Ok(None) => {
                 writeln!(
                     io::stderr().lock(),
-                    "{} unknown argument: {other}",
+                    "{} account not found: {name}",
                     "error:".red().bold()
                 )?;
-                return Ok(None);
+                return Ok(ExitCode::FAILURE);
             }
-            None => break,
+            Err(err) => {
+                writeln!(
+                    io::stderr().lock(),
+                    "{} failed to look up account: {err}",
+                    "error:".red().bold()
+                )?;
+                return Ok(ExitCode::FAILURE);
+            }
         }
-        idx += 1;
-    }
+    } else {
+        None
+    };
 
+    let date_range = from.zip(to);
+
+    let transactions = match (date_range, account_id.as_ref()) {
+        (Some((from_date, to_date)), Some(acc_id)) => {
+            client.transactions_by_date(from_date, to_date).map(|txs| {
+                txs.into_iter()
+                    .filter(|tx| tx.income_account == *acc_id || tx.outcome_account == *acc_id)
+                    .collect()
+            })
+        }
+        (Some((from_date, to_date)), None) => client.transactions_by_date(from_date, to_date),
+        (None, Some(acc_id)) => client.transactions_by_account(acc_id),
+        (None, None) => client.transactions(),
+    };
+
+    match transactions {
+        Ok(txs) => {
+            print_transactions_table(&txs)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(err) => {
+            writeln!(
+                io::stderr().lock(),
+                "{} failed to read transactions: {err}",
+                "error:".red().bold()
+            )?;
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// Executes the `tags` subcommand: lists all tags.
+fn cmd_tags<S: BlockingStorage>(client: &ZenMoneyBlocking<S>) -> io::Result<ExitCode> {
+    match client.tags() {
+        Ok(tags) => {
+            print_tags_table(&tags)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(err) => {
+            writeln!(
+                io::stderr().lock(),
+                "{} failed to read tags: {err}",
+                "error:".red().bold()
+            )?;
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// Executes the `suggest` subcommand: query suggestions for
+/// payee/comment.
+fn cmd_suggest<S: BlockingStorage>(
+    client: &ZenMoneyBlocking<S>,
+    payee: Option<String>,
+    comment: Option<String>,
+) -> io::Result<ExitCode> {
     if payee.is_none() && comment.is_none() {
         writeln!(
             io::stderr().lock(),
             "{} suggest requires at least --payee or --comment",
             "error:".red().bold()
         )?;
-        return Ok(None);
+        return Ok(ExitCode::FAILURE);
     }
 
-    Ok(Some(SuggestRequest { payee, comment }))
-}
-
-/// Executes the `suggest` subcommand: query suggestions for payee/comment.
-fn cmd_suggest<S: BlockingStorage>(
-    client: &ZenMoneyBlocking<S>,
-    args: &[String],
-) -> io::Result<ExitCode> {
-    let Some(request) = parse_suggest_args(args)? else {
-        return Ok(ExitCode::FAILURE);
-    };
-
+    let request = SuggestRequest { payee, comment };
     let spinner = make_spinner("Querying suggestions...");
 
     match client.suggest(&request) {
@@ -194,6 +346,8 @@ fn cmd_suggest<S: BlockingStorage>(
     }
 }
 
+// ── Output formatting ────────────────────────────────────────────────
+
 /// Prints the suggest response in a human-readable format.
 fn print_suggest_result(response: &SuggestResponse) -> io::Result<()> {
     let mut out = io::stdout().lock();
@@ -209,6 +363,133 @@ fn print_suggest_result(response: &SuggestResponse) -> io::Result<()> {
         let tag_list: Vec<&str> = tags.iter().map(TagId::as_inner).collect();
         writeln!(out, "  {} {}", "Tags:".bold(), tag_list.join(", "))?;
     }
+    Ok(())
+}
+
+/// Prints accounts in a table.
+fn print_accounts_table(accounts: &[Account]) -> io::Result<()> {
+    let mut out = io::stdout().lock();
+    if accounts.is_empty() {
+        writeln!(out, "{}", "No accounts found.".dimmed())?;
+        return Ok(());
+    }
+
+    let mut table = Table::new();
+    _ = table.load_preset(UTF8_FULL);
+    _ = table.set_header(vec![
+        Cell::new("Title").fg(Color::Cyan),
+        Cell::new("Type").fg(Color::Cyan),
+        Cell::new("Balance").fg(Color::Cyan),
+    ]);
+
+    for acc in accounts {
+        let balance_str = acc
+            .balance
+            .map_or_else(|| "\u{2014}".to_owned(), |bal| format!("{bal:.2}"));
+        let type_str = format!("{:?}", acc.kind);
+        _ = table.add_row(vec![
+            Cell::new(&acc.title),
+            Cell::new(type_str),
+            Cell::new(balance_str),
+        ]);
+    }
+
+    writeln!(
+        out,
+        "{} {}",
+        "Active Accounts".green().bold(),
+        format_args!("({})", accounts.len()).dimmed()
+    )?;
+    writeln!(out)?;
+    writeln!(out, "{table}")?;
+    Ok(())
+}
+
+/// Prints transactions in a table.
+fn print_transactions_table(txs: &[Transaction]) -> io::Result<()> {
+    let mut out = io::stdout().lock();
+    if txs.is_empty() {
+        writeln!(out, "{}", "No transactions found.".dimmed())?;
+        return Ok(());
+    }
+
+    let mut table = Table::new();
+    _ = table.load_preset(UTF8_FULL);
+    _ = table.set_header(vec![
+        Cell::new("Date").fg(Color::Cyan),
+        Cell::new("Payee").fg(Color::Cyan),
+        Cell::new("Outcome").fg(Color::Cyan),
+        Cell::new("Income").fg(Color::Cyan),
+        Cell::new("Comment").fg(Color::Cyan),
+    ]);
+
+    for tx in txs {
+        let payee = tx.payee.as_deref().unwrap_or("\u{2014}");
+        let comment = tx.comment.as_deref().unwrap_or("");
+
+        let outcome_cell = if tx.outcome > 0.0_f64 {
+            Cell::new(format!("{:.2}", tx.outcome)).fg(Color::Red)
+        } else {
+            Cell::new("\u{2014}").fg(Color::DarkGrey)
+        };
+
+        let income_cell = if tx.income > 0.0_f64 {
+            Cell::new(format!("{:.2}", tx.income)).fg(Color::Green)
+        } else {
+            Cell::new("\u{2014}").fg(Color::DarkGrey)
+        };
+
+        _ = table.add_row(vec![
+            Cell::new(tx.date),
+            Cell::new(payee),
+            outcome_cell,
+            income_cell,
+            Cell::new(comment),
+        ]);
+    }
+
+    writeln!(
+        out,
+        "{} {}",
+        "Transactions".green().bold(),
+        format_args!("({})", txs.len()).dimmed()
+    )?;
+    writeln!(out)?;
+    writeln!(out, "{table}")?;
+    Ok(())
+}
+
+/// Prints tags in a table.
+fn print_tags_table(tags: &[Tag]) -> io::Result<()> {
+    let mut out = io::stdout().lock();
+    if tags.is_empty() {
+        writeln!(out, "{}", "No tags found.".dimmed())?;
+        return Ok(());
+    }
+
+    let mut table = Table::new();
+    _ = table.load_preset(UTF8_FULL);
+    _ = table.set_header(vec![
+        Cell::new("Title").fg(Color::Cyan),
+        Cell::new("Parent").fg(Color::Cyan),
+    ]);
+
+    for tag in tags {
+        let parent = tag
+            .parent
+            .as_ref()
+            .map_or_else(|| "\u{2014}".to_owned(), ToString::to_string);
+        _ = table.add_row(vec![Cell::new(&tag.title), Cell::new(parent)]);
+    }
+
+    writeln!(
+        out,
+        "{} {}",
+        "Tags".green().bold(),
+        format_args!("({})", tags.len()).dimmed()
+    )?;
+    writeln!(out)?;
+    writeln!(out, "{table}")?;
     Ok(())
 }
 
@@ -270,46 +551,13 @@ fn print_diff_summary(response: &DiffResponse) -> io::Result<()> {
     Ok(())
 }
 
-/// Prints usage information.
-fn print_usage() -> io::Result<()> {
-    let mut out = io::stdout().lock();
-    writeln!(out, "{}", "zenmoney - ZenMoney API CLI".bold())?;
-    writeln!(out)?;
-    writeln!(out, "{}", "Usage:".yellow().bold())?;
-    writeln!(
-        out,
-        "  zenmoney diff                       Incremental sync from server"
-    )?;
-    writeln!(
-        out,
-        "  zenmoney suggest --payee <name>      Get category suggestions"
-    )?;
-    writeln!(
-        out,
-        "  zenmoney suggest --comment <text>    Get suggestions by comment"
-    )?;
-    writeln!(out)?;
-    writeln!(out, "{}", "Environment:".yellow().bold())?;
-    writeln!(out, "  {TOKEN_ENV}    API access token (or set in .env)")?;
-    writeln!(
-        out,
-        "  RUST_LOG          Tracing filter (e.g. debug, trace)"
-    )?;
-    writeln!(out)?;
-    writeln!(out, "{}", "Data:".yellow().bold())?;
-    writeln!(
-        out,
-        "  Synced data is stored in ~/.local/share/zenmoney-rs/"
-    )?;
-    Ok(())
-}
-
 /// Entry point.
 fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
         Err(err) => {
-            // Last-resort error output — if stderr itself failed, nothing we can do.
+            // Last-resort error output — if stderr itself failed, nothing
+            // we can do.
             let _ignored = writeln!(io::stderr(), "fatal I/O error: {err}");
             ExitCode::FAILURE
         }
