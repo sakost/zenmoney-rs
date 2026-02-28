@@ -16,6 +16,7 @@ pub use memory::InMemoryStorage;
 ///
 /// Uses `@methods` to define the method list once, and `@method` to render
 /// each method in async (`impl Future + Send`) or blocking (`fn`) style.
+#[allow(unused_macro_rules, reason = "rules are feature-gated at call sites")]
 macro_rules! define_storage {
     // ── Entry points ────────────────────────────────────────────────
     (
