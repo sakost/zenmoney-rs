@@ -1,6 +1,6 @@
 [package]
 name = "zenmoney-rs"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Rust client library for the ZenMoney API"
 license = "MIT OR Apache-2.0"
@@ -131,6 +131,7 @@ ignored = ["chrono", "clap", "secrecy", "reqwest", "url", "comfy-table", "dirs",
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1", features = ["v4"] }
+wiremock = "0.6.5"
 
 [dependencies]
 chrono = { version = "0.4.44", default-features = false, features = ["serde", "clock"] }

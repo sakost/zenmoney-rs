@@ -1113,224 +1113,12 @@ pub use blocking_zen_money::{ZenMoneyBlocking, ZenMoneyBlockingBuilder};
 mod tests {
     use super::*;
     use crate::models::{
-        Account, AccountId, AccountType, Budget, Company, CompanyId, Country, Deletion,
-        DiffResponse, Instrument, InstrumentId, Merchant, MerchantId, NaiveDate, Reminder,
-        ReminderId, ReminderMarker, ReminderMarkerId, Tag, TagId, Transaction, TransactionId, User,
-        UserId,
+        Account, AccountId, AccountType, Budget, Deletion, DiffResponse, Instrument, InstrumentId,
+        Merchant, MerchantId, NaiveDate, Reminder, ReminderId, ReminderMarker, ReminderMarkerId,
+        Tag, TagId, Transaction, TransactionId, UserId,
     };
-    use chrono::{DateTime, Utc};
-
-    /// In-memory mock storage for testing.
-    #[derive(Debug, Default)]
-    struct MockStorage {
-        /// All stored state behind a mutex for interior mutability.
-        inner: std::sync::Mutex<MockInner>,
-    }
-
-    /// Inner state of the mock storage.
-    #[derive(Debug, Default)]
-    struct MockInner {
-        /// Server timestamp.
-        server_timestamp: Option<DateTime<Utc>>,
-        /// Stored accounts.
-        accounts: Vec<Account>,
-        /// Stored transactions.
-        transactions: Vec<Transaction>,
-        /// Stored tags.
-        tags: Vec<Tag>,
-        /// Stored merchants.
-        merchants: Vec<Merchant>,
-        /// Stored instruments.
-        instruments: Vec<Instrument>,
-        /// Stored companies.
-        companies: Vec<Company>,
-        /// Stored countries.
-        countries: Vec<Country>,
-        /// Stored users.
-        users: Vec<User>,
-        /// Stored reminders.
-        reminders: Vec<Reminder>,
-        /// Stored reminder markers.
-        reminder_markers: Vec<ReminderMarker>,
-        /// Stored budgets.
-        budgets: Vec<Budget>,
-    }
-
-    #[cfg(feature = "blocking")]
-    impl crate::storage::BlockingStorage for MockStorage {
-        fn server_timestamp(&self) -> Result<Option<DateTime<Utc>>> {
-            Ok(self.inner.lock().unwrap().server_timestamp)
-        }
-        fn set_server_timestamp(&self, timestamp: DateTime<Utc>) -> Result<()> {
-            self.inner.lock().unwrap().server_timestamp = Some(timestamp);
-            Ok(())
-        }
-        fn accounts(&self) -> Result<Vec<Account>> {
-            Ok(self.inner.lock().unwrap().accounts.clone())
-        }
-        fn transactions(&self) -> Result<Vec<Transaction>> {
-            Ok(self.inner.lock().unwrap().transactions.clone())
-        }
-        fn tags(&self) -> Result<Vec<Tag>> {
-            Ok(self.inner.lock().unwrap().tags.clone())
-        }
-        fn merchants(&self) -> Result<Vec<Merchant>> {
-            Ok(self.inner.lock().unwrap().merchants.clone())
-        }
-        fn instruments(&self) -> Result<Vec<Instrument>> {
-            Ok(self.inner.lock().unwrap().instruments.clone())
-        }
-        fn companies(&self) -> Result<Vec<Company>> {
-            Ok(self.inner.lock().unwrap().companies.clone())
-        }
-        fn countries(&self) -> Result<Vec<Country>> {
-            Ok(self.inner.lock().unwrap().countries.clone())
-        }
-        fn users(&self) -> Result<Vec<User>> {
-            Ok(self.inner.lock().unwrap().users.clone())
-        }
-        fn reminders(&self) -> Result<Vec<Reminder>> {
-            Ok(self.inner.lock().unwrap().reminders.clone())
-        }
-        fn reminder_markers(&self) -> Result<Vec<ReminderMarker>> {
-            Ok(self.inner.lock().unwrap().reminder_markers.clone())
-        }
-        fn budgets(&self) -> Result<Vec<Budget>> {
-            Ok(self.inner.lock().unwrap().budgets.clone())
-        }
-        fn upsert_accounts(&self, items: Vec<Account>) -> Result<()> {
-            self.inner.lock().unwrap().accounts = items;
-            Ok(())
-        }
-        fn upsert_transactions(&self, items: Vec<Transaction>) -> Result<()> {
-            self.inner.lock().unwrap().transactions = items;
-            Ok(())
-        }
-        fn upsert_tags(&self, items: Vec<Tag>) -> Result<()> {
-            self.inner.lock().unwrap().tags = items;
-            Ok(())
-        }
-        fn upsert_merchants(&self, items: Vec<Merchant>) -> Result<()> {
-            self.inner.lock().unwrap().merchants = items;
-            Ok(())
-        }
-        fn upsert_instruments(&self, items: Vec<Instrument>) -> Result<()> {
-            self.inner.lock().unwrap().instruments = items;
-            Ok(())
-        }
-        fn upsert_companies(&self, items: Vec<Company>) -> Result<()> {
-            self.inner.lock().unwrap().companies = items;
-            Ok(())
-        }
-        fn upsert_countries(&self, items: Vec<Country>) -> Result<()> {
-            self.inner.lock().unwrap().countries = items;
-            Ok(())
-        }
-        fn upsert_users(&self, items: Vec<User>) -> Result<()> {
-            self.inner.lock().unwrap().users = items;
-            Ok(())
-        }
-        fn upsert_reminders(&self, items: Vec<Reminder>) -> Result<()> {
-            self.inner.lock().unwrap().reminders = items;
-            Ok(())
-        }
-        fn upsert_reminder_markers(&self, items: Vec<ReminderMarker>) -> Result<()> {
-            self.inner.lock().unwrap().reminder_markers = items;
-            Ok(())
-        }
-        fn upsert_budgets(&self, items: Vec<Budget>) -> Result<()> {
-            self.inner.lock().unwrap().budgets = items;
-            Ok(())
-        }
-        fn remove_accounts(&self, ids: &[AccountId]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .accounts
-                .retain(|a| !ids.contains(&a.id));
-            Ok(())
-        }
-        fn remove_transactions(&self, ids: &[TransactionId]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .transactions
-                .retain(|t| !ids.contains(&t.id));
-            Ok(())
-        }
-        fn remove_tags(&self, ids: &[TagId]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .tags
-                .retain(|t| !ids.contains(&t.id));
-            Ok(())
-        }
-        fn remove_merchants(&self, ids: &[MerchantId]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .merchants
-                .retain(|m| !ids.contains(&m.id));
-            Ok(())
-        }
-        fn remove_instruments(&self, ids: &[InstrumentId]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .instruments
-                .retain(|i| !ids.contains(&i.id));
-            Ok(())
-        }
-        fn remove_companies(&self, ids: &[CompanyId]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .companies
-                .retain(|c| !ids.contains(&c.id));
-            Ok(())
-        }
-        fn remove_countries(&self, ids: &[i32]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .countries
-                .retain(|c| !ids.contains(&c.id));
-            Ok(())
-        }
-        fn remove_users(&self, ids: &[UserId]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .users
-                .retain(|u| !ids.contains(&u.id));
-            Ok(())
-        }
-        fn remove_reminders(&self, ids: &[ReminderId]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .reminders
-                .retain(|r| !ids.contains(&r.id));
-            Ok(())
-        }
-        fn remove_reminder_markers(&self, ids: &[ReminderMarkerId]) -> Result<()> {
-            self.inner
-                .lock()
-                .unwrap()
-                .reminder_markers
-                .retain(|r| !ids.contains(&r.id));
-            Ok(())
-        }
-        fn remove_budgets(&self, _ids: &[String]) -> Result<()> {
-            Ok(())
-        }
-        fn clear(&self) -> Result<()> {
-            let mut inner = self.inner.lock().unwrap();
-            *inner = MockInner::default();
-            Ok(())
-        }
-    }
+    use crate::storage::InMemoryStorage;
+    use chrono::DateTime;
 
     /// Creates a minimal test account.
     fn test_account(id: &str, title: &str, archive: bool) -> Account {
@@ -1786,8 +1574,8 @@ mod tests {
         use crate::zen_money::blocking_zen_money::ZenMoneyBlocking;
 
         /// Helper to test `apply_diff` directly using a mock storage.
-        fn apply_diff_with_mock(response: &DiffResponse) -> (Result<()>, MockStorage) {
-            let storage = MockStorage::default();
+        fn apply_diff_with_mock(response: &DiffResponse) -> (Result<()>, InMemoryStorage) {
+            let storage = InMemoryStorage::new();
             // We can't easily construct ZenMoneyBlocking without a real HTTP client,
             // so we test apply_diff through the storage trait directly.
             // Instead, test the storage interactions.
@@ -1863,7 +1651,7 @@ mod tests {
 
         #[test]
         fn query_active_accounts() {
-            let storage = MockStorage::default();
+            let storage = InMemoryStorage::new();
             let acc1 = test_account("a-1", "Active", false);
             let acc2 = test_account("a-2", "Archived", true);
             storage.upsert_accounts(vec![acc1, acc2]).unwrap();
@@ -1880,7 +1668,7 @@ mod tests {
 
         #[test]
         fn query_find_tag_by_title() {
-            let storage = MockStorage::default();
+            let storage = InMemoryStorage::new();
             let tag = test_tag("t-1", "Groceries");
             storage.upsert_tags(vec![tag]).unwrap();
 
@@ -1894,7 +1682,7 @@ mod tests {
 
         #[test]
         fn query_transactions_by_date() {
-            let storage = MockStorage::default();
+            let storage = InMemoryStorage::new();
             let tx1 =
                 test_transaction("tx-1", "a-1", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
             let tx2 =
@@ -1916,7 +1704,7 @@ mod tests {
 
         #[test]
         fn filter_transactions_via_storage() {
-            let storage = MockStorage::default();
+            let storage = InMemoryStorage::new();
             let tx1 = test_transaction_full(
                 "tx-1",
                 "a-1",
@@ -1984,7 +1772,7 @@ mod tests {
 
         #[test]
         fn builder_requires_storage() {
-            let result = ZenMoneyBlocking::<MockStorage>::builder()
+            let result = ZenMoneyBlocking::<InMemoryStorage>::builder()
                 .token("test")
                 .build();
             assert!(result.is_err());
@@ -1993,7 +1781,7 @@ mod tests {
         #[test]
         fn builder_requires_token() {
             let result = ZenMoneyBlocking::builder()
-                .storage(MockStorage::default())
+                .storage(InMemoryStorage::new())
                 .build();
             assert!(result.is_err());
         }
@@ -2002,9 +1790,1116 @@ mod tests {
         fn builder_succeeds_with_token_and_storage() {
             let result = ZenMoneyBlocking::builder()
                 .token("test")
-                .storage(MockStorage::default())
+                .storage(InMemoryStorage::new())
                 .build();
             assert!(result.is_ok());
+        }
+
+        #[test]
+        fn accessor_methods_delegate_to_storage() {
+            let client = ZenMoneyBlocking::builder()
+                .token("test")
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            assert!(client.accounts().unwrap().is_empty());
+            assert!(client.transactions().unwrap().is_empty());
+            assert!(client.tags().unwrap().is_empty());
+            assert!(client.merchants().unwrap().is_empty());
+            assert!(client.instruments().unwrap().is_empty());
+            assert!(client.companies().unwrap().is_empty());
+            assert!(client.countries().unwrap().is_empty());
+            assert!(client.users().unwrap().is_empty());
+            assert!(client.reminders().unwrap().is_empty());
+            assert!(client.reminder_markers().unwrap().is_empty());
+            assert!(client.budgets().unwrap().is_empty());
+        }
+
+        #[test]
+        fn active_accounts_filters_archived() {
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_accounts(vec![
+                    test_account("a-1", "Active", false),
+                    test_account("a-2", "Archived", true),
+                ])
+                .unwrap();
+            let client = ZenMoneyBlocking::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let active = client.active_accounts().unwrap();
+            assert_eq!(active.len(), 1);
+            assert_eq!(active[0].title, "Active");
+        }
+
+        #[test]
+        fn find_tag_by_title_case_insensitive() {
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_tags(vec![test_tag("t-1", "Groceries")])
+                .unwrap();
+            let client = ZenMoneyBlocking::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let found = client.find_tag_by_title("GROCERIES").unwrap();
+            assert!(found.is_some());
+            assert_eq!(found.unwrap().id, TagId::new("t-1".to_owned()));
+            assert!(client.find_tag_by_title("nonexistent").unwrap().is_none());
+        }
+
+        #[test]
+        fn find_account_by_title_case_insensitive() {
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_accounts(vec![test_account("a-1", "Checking", false)])
+                .unwrap();
+            let client = ZenMoneyBlocking::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let found = client.find_account_by_title("checking").unwrap();
+            assert!(found.is_some());
+            assert!(
+                client
+                    .find_account_by_title("nonexistent")
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        #[test]
+        fn instrument_lookup() {
+            let storage = InMemoryStorage::new();
+            let instr = Instrument {
+                id: InstrumentId::new(840_i32),
+                title: "USD".to_owned(),
+                short_title: "USD".to_owned(),
+                symbol: "$".to_owned(),
+                rate: 1.0,
+                changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            };
+            storage.upsert_instruments(vec![instr]).unwrap();
+            let client = ZenMoneyBlocking::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let found = client.instrument(InstrumentId::new(840_i32)).unwrap();
+            assert!(found.is_some());
+            assert_eq!(found.unwrap().title, "USD");
+            assert!(
+                client
+                    .instrument(InstrumentId::new(999_i32))
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        #[test]
+        fn filter_transactions_excludes_deleted() {
+            let storage = InMemoryStorage::new();
+            let mut tx1 =
+                test_transaction("tx-1", "a-1", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+            tx1.deleted = true;
+            let tx2 = test_transaction("tx-2", "a-1", NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
+            storage.upsert_transactions(vec![tx1, tx2]).unwrap();
+            let client = ZenMoneyBlocking::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let results = client
+                .filter_transactions(&TransactionFilter::new())
+                .unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].id, TransactionId::new("tx-2".to_owned()));
+        }
+
+        #[test]
+        fn transactions_by_date_delegates() {
+            let storage = InMemoryStorage::new();
+            let tx1 =
+                test_transaction("tx-1", "a-1", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+            let tx2 =
+                test_transaction("tx-2", "a-1", NaiveDate::from_ymd_opt(2024, 3, 15).unwrap());
+            storage.upsert_transactions(vec![tx1, tx2]).unwrap();
+            let client = ZenMoneyBlocking::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let results = client
+                .transactions_by_date(
+                    NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    NaiveDate::from_ymd_opt(2024, 2, 28).unwrap(),
+                )
+                .unwrap();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn transactions_by_account_delegates() {
+            let storage = InMemoryStorage::new();
+            let tx1 = test_transaction("tx-1", "a-1", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+            let tx2 = test_transaction("tx-2", "a-2", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+            storage.upsert_transactions(vec![tx1, tx2]).unwrap();
+            let client = ZenMoneyBlocking::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let results = client
+                .transactions_by_account(&AccountId::new("a-1".to_owned()))
+                .unwrap();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[test]
+        fn inner_client_and_storage_accessors() {
+            let client = ZenMoneyBlocking::builder()
+                .token("test")
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            // Just verify they don't panic and return references.
+            let _http = client.inner_client();
+            let _storage = client.storage();
+        }
+
+        #[test]
+        fn sync_fetches_and_applies_diff() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let mock_server = rt.block_on(wiremock::MockServer::start());
+            rt.block_on(async {
+                wiremock::Mock::given(wiremock::matchers::method("POST"))
+                    .and(wiremock::matchers::path("/v8/diff/"))
+                    .respond_with(
+                        wiremock::ResponseTemplate::new(200).set_body_json(&empty_diff_response()),
+                    )
+                    .mount(&mock_server)
+                    .await;
+            });
+            let client = ZenMoneyBlocking::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            let response = client.sync().unwrap();
+            assert_eq!(
+                response.server_timestamp,
+                DateTime::from_timestamp(1_700_000_100, 0).unwrap()
+            );
+        }
+
+        #[test]
+        fn full_sync_clears_and_syncs() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let mock_server = rt.block_on(wiremock::MockServer::start());
+            rt.block_on(async {
+                wiremock::Mock::given(wiremock::matchers::method("POST"))
+                    .and(wiremock::matchers::path("/v8/diff/"))
+                    .respond_with(
+                        wiremock::ResponseTemplate::new(200).set_body_json(&empty_diff_response()),
+                    )
+                    .mount(&mock_server)
+                    .await;
+            });
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_accounts(vec![test_account("a-1", "Old", false)])
+                .unwrap();
+            let client = ZenMoneyBlocking::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(storage)
+                .build()
+                .unwrap();
+            let _response = client.full_sync().unwrap();
+            // Storage should have been cleared before sync.
+            assert!(client.accounts().unwrap().is_empty());
+        }
+
+        #[test]
+        fn push_all_entity_types() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let mock_server = rt.block_on(wiremock::MockServer::start());
+            rt.block_on(async {
+                wiremock::Mock::given(wiremock::matchers::method("POST"))
+                    .and(wiremock::matchers::path("/v8/diff/"))
+                    .respond_with(
+                        wiremock::ResponseTemplate::new(200).set_body_json(&empty_diff_response()),
+                    )
+                    .expect(7_u64)
+                    .mount(&mock_server)
+                    .await;
+            });
+            let client = ZenMoneyBlocking::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+
+            drop(
+                client
+                    .push_accounts(vec![test_account("a-1", "Test", false)])
+                    .unwrap(),
+            );
+            drop(
+                client
+                    .push_transactions(vec![test_transaction(
+                        "tx-1",
+                        "a-1",
+                        NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )])
+                    .unwrap(),
+            );
+            drop(client.push_tags(vec![test_tag("t-1", "Food")]).unwrap());
+            drop(client.push_merchants(vec![test_merchant("m-1")]).unwrap());
+            drop(client.push_reminders(vec![test_reminder("r-1")]).unwrap());
+            drop(
+                client
+                    .push_reminder_markers(vec![test_reminder_marker("rm-1")])
+                    .unwrap(),
+            );
+            drop(client.push_budgets(vec![test_budget()]).unwrap());
+        }
+
+        #[test]
+        fn delete_all_entity_types() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let mock_server = rt.block_on(wiremock::MockServer::start());
+            rt.block_on(async {
+                wiremock::Mock::given(wiremock::matchers::method("POST"))
+                    .and(wiremock::matchers::path("/v8/diff/"))
+                    .respond_with(
+                        wiremock::ResponseTemplate::new(200).set_body_json(&empty_diff_response()),
+                    )
+                    .expect(6_u64)
+                    .mount(&mock_server)
+                    .await;
+            });
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_accounts(vec![test_account("a-1", "Test", false)])
+                .unwrap();
+            storage
+                .upsert_transactions(vec![test_transaction(
+                    "tx-1",
+                    "a-1",
+                    NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                )])
+                .unwrap();
+            storage.upsert_tags(vec![test_tag("t-1", "Food")]).unwrap();
+            storage
+                .upsert_merchants(vec![test_merchant("m-1")])
+                .unwrap();
+            storage
+                .upsert_reminders(vec![test_reminder("r-1")])
+                .unwrap();
+            storage
+                .upsert_reminder_markers(vec![test_reminder_marker("rm-1")])
+                .unwrap();
+
+            let client = ZenMoneyBlocking::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(storage)
+                .build()
+                .unwrap();
+
+            drop(
+                client
+                    .delete_accounts(&[AccountId::new("a-1".to_owned())])
+                    .unwrap(),
+            );
+            assert!(client.accounts().unwrap().is_empty());
+
+            drop(
+                client
+                    .delete_transactions(&[TransactionId::new("tx-1".to_owned())])
+                    .unwrap(),
+            );
+            assert!(client.transactions().unwrap().is_empty());
+
+            drop(client.delete_tags(&[TagId::new("t-1".to_owned())]).unwrap());
+            assert!(client.tags().unwrap().is_empty());
+
+            drop(
+                client
+                    .delete_merchants(&[MerchantId::new("m-1".to_owned())])
+                    .unwrap(),
+            );
+            assert!(client.merchants().unwrap().is_empty());
+
+            drop(
+                client
+                    .delete_reminders(&[ReminderId::new("r-1".to_owned())])
+                    .unwrap(),
+            );
+            assert!(client.reminders().unwrap().is_empty());
+
+            drop(
+                client
+                    .delete_reminder_markers(&[ReminderMarkerId::new("rm-1".to_owned())])
+                    .unwrap(),
+            );
+            assert!(client.reminder_markers().unwrap().is_empty());
+        }
+
+        #[test]
+        fn suggest_delegates_to_client() {
+            use crate::models::SuggestRequest;
+
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let mock_server = rt.block_on(wiremock::MockServer::start());
+            rt.block_on(async {
+                wiremock::Mock::given(wiremock::matchers::method("POST"))
+                    .and(wiremock::matchers::path("/v8/suggest/"))
+                    .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+                        serde_json::json!({"payee": "Starbucks", "tag": null, "merchant": null}),
+                    ))
+                    .mount(&mock_server)
+                    .await;
+            });
+            let client = ZenMoneyBlocking::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            let resp = client
+                .suggest(&SuggestRequest {
+                    payee: Some("star".to_owned()),
+                    comment: None,
+                })
+                .unwrap();
+            assert_eq!(resp.payee.unwrap(), "Starbucks");
+        }
+
+        #[test]
+        fn api_error_returns_error() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let mock_server = rt.block_on(wiremock::MockServer::start());
+            rt.block_on(async {
+                wiremock::Mock::given(wiremock::matchers::method("POST"))
+                    .and(wiremock::matchers::path("/v8/diff/"))
+                    .respond_with(
+                        wiremock::ResponseTemplate::new(401).set_body_string("unauthorized"),
+                    )
+                    .mount(&mock_server)
+                    .await;
+            });
+            let client = ZenMoneyBlocking::builder()
+                .token("bad-token")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            let err = client.sync().unwrap_err();
+            assert!(matches!(err, ZenMoneyError::Api { status: 401, .. }));
+        }
+    }
+
+    /// Returns a minimal valid `DiffResponse` for mock server responses.
+    fn empty_diff_response() -> DiffResponse {
+        DiffResponse {
+            server_timestamp: DateTime::from_timestamp(1_700_000_100, 0).unwrap(),
+            instrument: Vec::new(),
+            country: Vec::new(),
+            company: Vec::new(),
+            user: Vec::new(),
+            account: Vec::new(),
+            tag: Vec::new(),
+            merchant: Vec::new(),
+            transaction: Vec::new(),
+            reminder: Vec::new(),
+            reminder_marker: Vec::new(),
+            budget: Vec::new(),
+            deletion: Vec::new(),
+        }
+    }
+
+    /// Creates a minimal test merchant.
+    fn test_merchant(id: &str) -> Merchant {
+        Merchant {
+            id: MerchantId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            title: "Test Merchant".to_owned(),
+        }
+    }
+
+    /// Creates a minimal test reminder.
+    fn test_reminder(id: &str) -> Reminder {
+        use crate::models::Interval;
+
+        Reminder {
+            id: ReminderId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            income_instrument: InstrumentId::new(1_i32),
+            income_account: AccountId::new("a-1".to_owned()),
+            income: 0.0,
+            outcome_instrument: InstrumentId::new(1_i32),
+            outcome_account: AccountId::new("a-1".to_owned()),
+            outcome: 100.0,
+            tag: None,
+            merchant: None,
+            payee: None,
+            comment: None,
+            interval: Some(Interval::Month),
+            step: Some(1_i32),
+            points: Some(vec![1_i32]),
+            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end_date: None,
+            notify: false,
+        }
+    }
+
+    /// Creates a minimal test reminder marker.
+    fn test_reminder_marker(id: &str) -> ReminderMarker {
+        use crate::models::ReminderMarkerState;
+
+        ReminderMarker {
+            id: ReminderMarkerId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            income_instrument: InstrumentId::new(1_i32),
+            income_account: AccountId::new("a-1".to_owned()),
+            income: 0.0,
+            outcome_instrument: InstrumentId::new(1_i32),
+            outcome_account: AccountId::new("a-1".to_owned()),
+            outcome: 100.0,
+            tag: None,
+            merchant: None,
+            payee: None,
+            comment: None,
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            reminder: ReminderId::new("r-1".to_owned()),
+            state: ReminderMarkerState::Planned,
+            notify: false,
+            is_forecast: None,
+        }
+    }
+
+    /// Creates a minimal test budget.
+    fn test_budget() -> Budget {
+        Budget {
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            tag: None,
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            income: 1000.0,
+            income_lock: false,
+            outcome: 500.0,
+            outcome_lock: false,
+            is_income_forecast: None,
+            is_outcome_forecast: None,
+        }
+    }
+
+    #[test]
+    fn grouped_deletions_all_entity_types() {
+        let response = DiffResponse {
+            server_timestamp: DateTime::from_timestamp(100, 0).unwrap(),
+            instrument: Vec::new(),
+            country: Vec::new(),
+            company: Vec::new(),
+            user: Vec::new(),
+            account: Vec::new(),
+            tag: Vec::new(),
+            merchant: Vec::new(),
+            transaction: Vec::new(),
+            reminder: Vec::new(),
+            reminder_marker: Vec::new(),
+            budget: Vec::new(),
+            deletion: vec![
+                Deletion {
+                    id: "acc-1".to_owned(),
+                    object: "account".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+                Deletion {
+                    id: "tx-1".to_owned(),
+                    object: "transaction".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+                Deletion {
+                    id: "tag-1".to_owned(),
+                    object: "tag".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+                Deletion {
+                    id: "m-1".to_owned(),
+                    object: "merchant".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+                Deletion {
+                    id: "42".to_owned(),
+                    object: "instrument".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+                Deletion {
+                    id: "7".to_owned(),
+                    object: "company".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+                Deletion {
+                    id: "1".to_owned(),
+                    object: "country".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+                Deletion {
+                    id: "99".to_owned(),
+                    object: "user".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+                Deletion {
+                    id: "r-1".to_owned(),
+                    object: "reminder".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+                Deletion {
+                    id: "rm-1".to_owned(),
+                    object: "reminderMarker".to_owned(),
+                    stamp: DateTime::from_timestamp(100, 0).unwrap(),
+                    user: 1_i64,
+                },
+            ],
+        };
+
+        let groups = GroupedDeletions::from_response(&response).unwrap();
+        assert_eq!(groups.accounts.len(), 1);
+        assert_eq!(groups.transactions.len(), 1);
+        assert_eq!(groups.tags.len(), 1);
+        assert_eq!(groups.merchants.len(), 1);
+        assert_eq!(groups.instruments.len(), 1);
+        assert_eq!(groups.companies.len(), 1);
+        assert_eq!(groups.countries.len(), 1);
+        assert_eq!(groups.users.len(), 1);
+        assert_eq!(groups.reminders.len(), 1);
+        assert_eq!(groups.reminder_markers.len(), 1);
+    }
+
+    #[cfg(feature = "async")]
+    mod async_tests {
+        use super::*;
+        use crate::storage::Storage;
+        use crate::zen_money::async_zen_money::ZenMoney;
+
+        #[tokio::test]
+        async fn builder_requires_storage() {
+            let result = ZenMoney::<InMemoryStorage>::builder().token("test").build();
+            assert!(result.is_err());
+        }
+
+        #[tokio::test]
+        async fn builder_requires_token() {
+            let result = ZenMoney::builder().storage(InMemoryStorage::new()).build();
+            assert!(result.is_err());
+        }
+
+        #[tokio::test]
+        async fn builder_succeeds() {
+            let result = ZenMoney::builder()
+                .token("test")
+                .storage(InMemoryStorage::new())
+                .build();
+            assert!(result.is_ok());
+        }
+
+        #[tokio::test]
+        async fn accessor_methods_delegate_to_storage() {
+            let client = ZenMoney::builder()
+                .token("test")
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            assert!(client.accounts().await.unwrap().is_empty());
+            assert!(client.transactions().await.unwrap().is_empty());
+            assert!(client.tags().await.unwrap().is_empty());
+            assert!(client.merchants().await.unwrap().is_empty());
+            assert!(client.instruments().await.unwrap().is_empty());
+            assert!(client.companies().await.unwrap().is_empty());
+            assert!(client.countries().await.unwrap().is_empty());
+            assert!(client.users().await.unwrap().is_empty());
+            assert!(client.reminders().await.unwrap().is_empty());
+            assert!(client.reminder_markers().await.unwrap().is_empty());
+            assert!(client.budgets().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn active_accounts_filters_archived() {
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_accounts(vec![
+                    test_account("a-1", "Active", false),
+                    test_account("a-2", "Archived", true),
+                ])
+                .await
+                .unwrap();
+            let client = ZenMoney::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let active = client.active_accounts().await.unwrap();
+            assert_eq!(active.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn find_tag_by_title_case_insensitive() {
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_tags(vec![test_tag("t-1", "Groceries")])
+                .await
+                .unwrap();
+            let client = ZenMoney::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            assert!(
+                client
+                    .find_tag_by_title("GROCERIES")
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(
+                client
+                    .find_tag_by_title("nonexistent")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        #[tokio::test]
+        async fn find_account_by_title_case_insensitive() {
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_accounts(vec![test_account("a-1", "Checking", false)])
+                .await
+                .unwrap();
+            let client = ZenMoney::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            assert!(
+                client
+                    .find_account_by_title("checking")
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(
+                client
+                    .find_account_by_title("none")
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        #[tokio::test]
+        async fn instrument_lookup() {
+            let storage = InMemoryStorage::new();
+            let instr = Instrument {
+                id: InstrumentId::new(840_i32),
+                title: "USD".to_owned(),
+                short_title: "USD".to_owned(),
+                symbol: "$".to_owned(),
+                rate: 1.0,
+                changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            };
+            storage.upsert_instruments(vec![instr]).await.unwrap();
+            let client = ZenMoney::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            assert!(
+                client
+                    .instrument(InstrumentId::new(840_i32))
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(
+                client
+                    .instrument(InstrumentId::new(999_i32))
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        #[tokio::test]
+        async fn filter_transactions_excludes_deleted() {
+            let storage = InMemoryStorage::new();
+            let mut tx1 =
+                test_transaction("tx-1", "a-1", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+            tx1.deleted = true;
+            let tx2 = test_transaction("tx-2", "a-1", NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
+            storage.upsert_transactions(vec![tx1, tx2]).await.unwrap();
+            let client = ZenMoney::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let results = client
+                .filter_transactions(&TransactionFilter::new())
+                .await
+                .unwrap();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn transactions_by_date_delegates() {
+            let storage = InMemoryStorage::new();
+            let tx1 =
+                test_transaction("tx-1", "a-1", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+            let tx2 =
+                test_transaction("tx-2", "a-1", NaiveDate::from_ymd_opt(2024, 3, 15).unwrap());
+            storage.upsert_transactions(vec![tx1, tx2]).await.unwrap();
+            let client = ZenMoney::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let results = client
+                .transactions_by_date(
+                    NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    NaiveDate::from_ymd_opt(2024, 2, 28).unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn transactions_by_account_delegates() {
+            let storage = InMemoryStorage::new();
+            let tx1 = test_transaction("tx-1", "a-1", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+            let tx2 = test_transaction("tx-2", "a-2", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+            storage.upsert_transactions(vec![tx1, tx2]).await.unwrap();
+            let client = ZenMoney::builder()
+                .token("test")
+                .storage(storage)
+                .build()
+                .unwrap();
+            let results = client
+                .transactions_by_account(&AccountId::new("a-1".to_owned()))
+                .await
+                .unwrap();
+            assert_eq!(results.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn inner_client_and_storage_accessors() {
+            let client = ZenMoney::builder()
+                .token("test")
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            let _http = client.inner_client();
+            let _storage = client.storage();
+        }
+
+        #[tokio::test]
+        async fn sync_fetches_and_applies_diff() {
+            let mock_server = wiremock::MockServer::start().await;
+            wiremock::Mock::given(wiremock::matchers::method("POST"))
+                .and(wiremock::matchers::path("/v8/diff/"))
+                .respond_with(
+                    wiremock::ResponseTemplate::new(200).set_body_json(&empty_diff_response()),
+                )
+                .mount(&mock_server)
+                .await;
+            let client = ZenMoney::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            let response = client.sync().await.unwrap();
+            assert_eq!(
+                response.server_timestamp,
+                DateTime::from_timestamp(1_700_000_100, 0).unwrap()
+            );
+        }
+
+        #[tokio::test]
+        async fn full_sync_clears_and_syncs() {
+            let mock_server = wiremock::MockServer::start().await;
+            wiremock::Mock::given(wiremock::matchers::method("POST"))
+                .and(wiremock::matchers::path("/v8/diff/"))
+                .respond_with(
+                    wiremock::ResponseTemplate::new(200).set_body_json(&empty_diff_response()),
+                )
+                .mount(&mock_server)
+                .await;
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_accounts(vec![test_account("a-1", "Old", false)])
+                .await
+                .unwrap();
+            let client = ZenMoney::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(storage)
+                .build()
+                .unwrap();
+            let _response = client.full_sync().await.unwrap();
+            assert!(client.accounts().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn push_all_entity_types() {
+            let mock_server = wiremock::MockServer::start().await;
+            wiremock::Mock::given(wiremock::matchers::method("POST"))
+                .and(wiremock::matchers::path("/v8/diff/"))
+                .respond_with(
+                    wiremock::ResponseTemplate::new(200).set_body_json(&empty_diff_response()),
+                )
+                .expect(7_u64)
+                .mount(&mock_server)
+                .await;
+            let client = ZenMoney::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+
+            drop(
+                client
+                    .push_accounts(vec![test_account("a-1", "Test", false)])
+                    .await
+                    .unwrap(),
+            );
+            drop(
+                client
+                    .push_transactions(vec![test_transaction(
+                        "tx-1",
+                        "a-1",
+                        NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                    )])
+                    .await
+                    .unwrap(),
+            );
+            drop(
+                client
+                    .push_tags(vec![test_tag("t-1", "Food")])
+                    .await
+                    .unwrap(),
+            );
+            drop(
+                client
+                    .push_merchants(vec![test_merchant("m-1")])
+                    .await
+                    .unwrap(),
+            );
+            drop(
+                client
+                    .push_reminders(vec![test_reminder("r-1")])
+                    .await
+                    .unwrap(),
+            );
+            drop(
+                client
+                    .push_reminder_markers(vec![test_reminder_marker("rm-1")])
+                    .await
+                    .unwrap(),
+            );
+            drop(client.push_budgets(vec![test_budget()]).await.unwrap());
+        }
+
+        #[tokio::test]
+        async fn delete_all_entity_types() {
+            let mock_server = wiremock::MockServer::start().await;
+            wiremock::Mock::given(wiremock::matchers::method("POST"))
+                .and(wiremock::matchers::path("/v8/diff/"))
+                .respond_with(
+                    wiremock::ResponseTemplate::new(200).set_body_json(&empty_diff_response()),
+                )
+                .expect(6_u64)
+                .mount(&mock_server)
+                .await;
+            let storage = InMemoryStorage::new();
+            storage
+                .upsert_accounts(vec![test_account("a-1", "Test", false)])
+                .await
+                .unwrap();
+            storage
+                .upsert_transactions(vec![test_transaction(
+                    "tx-1",
+                    "a-1",
+                    NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                )])
+                .await
+                .unwrap();
+            storage
+                .upsert_tags(vec![test_tag("t-1", "Food")])
+                .await
+                .unwrap();
+            storage
+                .upsert_merchants(vec![test_merchant("m-1")])
+                .await
+                .unwrap();
+            storage
+                .upsert_reminders(vec![test_reminder("r-1")])
+                .await
+                .unwrap();
+            storage
+                .upsert_reminder_markers(vec![test_reminder_marker("rm-1")])
+                .await
+                .unwrap();
+
+            let client = ZenMoney::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(storage)
+                .build()
+                .unwrap();
+
+            drop(
+                client
+                    .delete_accounts(&[AccountId::new("a-1".to_owned())])
+                    .await
+                    .unwrap(),
+            );
+            assert!(client.accounts().await.unwrap().is_empty());
+            drop(
+                client
+                    .delete_transactions(&[TransactionId::new("tx-1".to_owned())])
+                    .await
+                    .unwrap(),
+            );
+            assert!(client.transactions().await.unwrap().is_empty());
+            drop(
+                client
+                    .delete_tags(&[TagId::new("t-1".to_owned())])
+                    .await
+                    .unwrap(),
+            );
+            assert!(client.tags().await.unwrap().is_empty());
+            drop(
+                client
+                    .delete_merchants(&[MerchantId::new("m-1".to_owned())])
+                    .await
+                    .unwrap(),
+            );
+            assert!(client.merchants().await.unwrap().is_empty());
+            drop(
+                client
+                    .delete_reminders(&[ReminderId::new("r-1".to_owned())])
+                    .await
+                    .unwrap(),
+            );
+            assert!(client.reminders().await.unwrap().is_empty());
+            drop(
+                client
+                    .delete_reminder_markers(&[ReminderMarkerId::new("rm-1".to_owned())])
+                    .await
+                    .unwrap(),
+            );
+            assert!(client.reminder_markers().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn suggest_delegates_to_client() {
+            use crate::models::SuggestRequest;
+
+            let mock_server = wiremock::MockServer::start().await;
+            wiremock::Mock::given(wiremock::matchers::method("POST"))
+                .and(wiremock::matchers::path("/v8/suggest/"))
+                .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+                    serde_json::json!({"payee": "Starbucks", "tag": null, "merchant": null}),
+                ))
+                .mount(&mock_server)
+                .await;
+            let client = ZenMoney::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            let resp = client
+                .suggest(&SuggestRequest {
+                    payee: Some("star".to_owned()),
+                    comment: None,
+                })
+                .await
+                .unwrap();
+            assert_eq!(resp.payee.unwrap(), "Starbucks");
+        }
+
+        #[tokio::test]
+        async fn api_error_returns_error() {
+            let mock_server = wiremock::MockServer::start().await;
+            wiremock::Mock::given(wiremock::matchers::method("POST"))
+                .and(wiremock::matchers::path("/v8/diff/"))
+                .respond_with(wiremock::ResponseTemplate::new(401).set_body_string("unauthorized"))
+                .mount(&mock_server)
+                .await;
+            let client = ZenMoney::builder()
+                .token("bad-token")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            let err = client.sync().await.unwrap_err();
+            assert!(matches!(err, ZenMoneyError::Api { status: 401, .. }));
+        }
+
+        #[tokio::test]
+        async fn apply_diff_upserts_and_deletes() {
+            let acc = test_account("a-1", "Test", false);
+            let mut diff = empty_diff_response();
+            diff.account = vec![acc];
+            diff.deletion = vec![Deletion {
+                id: "a-1".to_owned(),
+                object: "account".to_owned(),
+                stamp: DateTime::from_timestamp(200, 0).unwrap(),
+                user: 1_i64,
+            }];
+
+            let mock_server = wiremock::MockServer::start().await;
+            wiremock::Mock::given(wiremock::matchers::method("POST"))
+                .and(wiremock::matchers::path("/v8/diff/"))
+                .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(&diff))
+                .mount(&mock_server)
+                .await;
+
+            let client = ZenMoney::builder()
+                .token("test")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            let response = client.sync().await.unwrap();
+            // Deletion was processed, so account should be removed.
+            assert!(client.accounts().await.unwrap().is_empty());
+            assert_eq!(response.server_timestamp, diff.server_timestamp);
         }
     }
 }

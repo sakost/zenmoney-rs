@@ -798,7 +798,11 @@ impl super::Storage for FileStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AccountType, InstrumentId, UserId};
+    use crate::models::{
+        AccountType, Budget, Company, CompanyId, Country, Instrument, Merchant, MerchantId,
+        NaiveDate, Reminder, ReminderId, ReminderMarker, ReminderMarkerId, Tag, TagId, Transaction,
+        TransactionId, User,
+    };
 
     /// Helper to create a [`FileStorage`] in a temporary directory.
     fn temp_storage() -> (FileStorage, tempfile::TempDir) {
@@ -836,6 +840,200 @@ mod tests {
             payoff_interval: None,
             balance_correction_type: None,
             private: None,
+        }
+    }
+
+    /// Creates a minimal test transaction.
+    fn test_transaction(id: &str, account_id: &str) -> Transaction {
+        Transaction {
+            id: TransactionId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            created: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            deleted: false,
+            hold: None,
+            income_instrument: InstrumentId::new(1_i32),
+            income_account: AccountId::new(account_id.to_owned()),
+            income: 0.0,
+            outcome_instrument: InstrumentId::new(1_i32),
+            outcome_account: AccountId::new(account_id.to_owned()),
+            outcome: 100.0,
+            tag: None,
+            merchant: None,
+            payee: None,
+            original_payee: None,
+            comment: None,
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            mcc: None,
+            reminder_marker: None,
+            op_income: None,
+            op_income_instrument: None,
+            op_outcome: None,
+            op_outcome_instrument: None,
+            latitude: None,
+            longitude: None,
+            income_bank_id: None,
+            outcome_bank_id: None,
+            qr_code: None,
+            source: None,
+            viewed: None,
+        }
+    }
+
+    /// Creates a minimal test tag.
+    fn test_tag(id: &str, title: &str) -> Tag {
+        Tag {
+            id: TagId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            title: title.to_owned(),
+            parent: None,
+            icon: None,
+            picture: None,
+            color: None,
+            show_income: true,
+            show_outcome: true,
+            budget_income: false,
+            budget_outcome: false,
+            required: None,
+            static_id: None,
+            archive: None,
+        }
+    }
+
+    /// Creates a minimal test merchant.
+    fn test_merchant(id: &str) -> Merchant {
+        Merchant {
+            id: MerchantId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            title: "Test Merchant".to_owned(),
+        }
+    }
+
+    /// Creates a minimal test instrument.
+    fn test_instrument(id: i32) -> Instrument {
+        Instrument {
+            id: InstrumentId::new(id),
+            title: "Test Currency".to_owned(),
+            short_title: "TST".to_owned(),
+            symbol: "T".to_owned(),
+            rate: 1.0,
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        }
+    }
+
+    /// Creates a minimal test company.
+    fn test_company(id: i32) -> Company {
+        Company {
+            id: CompanyId::new(id),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            title: "Test Bank".to_owned(),
+            full_title: None,
+            www: None,
+            country: None,
+            country_code: None,
+            deleted: None,
+        }
+    }
+
+    /// Creates a minimal test country.
+    fn test_country(id: i32) -> Country {
+        Country {
+            id,
+            title: "Test Country".to_owned(),
+            currency: InstrumentId::new(1_i32),
+            domain: None,
+        }
+    }
+
+    /// Creates a minimal test user.
+    fn test_user(id: i64) -> User {
+        User {
+            id: UserId::new(id),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            login: Some("test@test.com".to_owned()),
+            currency: InstrumentId::new(1_i32),
+            parent: None,
+            country: None,
+            country_code: None,
+            email: None,
+            is_forecast_enabled: None,
+            month_start_day: None,
+            paid_till: None,
+            plan_balance_mode: None,
+            plan_settings: None,
+            subscription: None,
+            subscription_renewal_date: None,
+        }
+    }
+
+    /// Creates a minimal test reminder.
+    fn test_reminder(id: &str) -> Reminder {
+        use crate::models::Interval;
+
+        Reminder {
+            id: ReminderId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            income_instrument: InstrumentId::new(1_i32),
+            income_account: AccountId::new("a-1".to_owned()),
+            income: 0.0,
+            outcome_instrument: InstrumentId::new(1_i32),
+            outcome_account: AccountId::new("a-1".to_owned()),
+            outcome: 100.0,
+            tag: None,
+            merchant: None,
+            payee: None,
+            comment: None,
+            interval: Some(Interval::Month),
+            step: Some(1_i32),
+            points: Some(vec![1_i32]),
+            start_date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            end_date: None,
+            notify: false,
+        }
+    }
+
+    /// Creates a minimal test reminder marker.
+    fn test_reminder_marker(id: &str) -> ReminderMarker {
+        use crate::models::ReminderMarkerState;
+
+        ReminderMarker {
+            id: ReminderMarkerId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            income_instrument: InstrumentId::new(1_i32),
+            income_account: AccountId::new("a-1".to_owned()),
+            income: 0.0,
+            outcome_instrument: InstrumentId::new(1_i32),
+            outcome_account: AccountId::new("a-1".to_owned()),
+            outcome: 100.0,
+            tag: None,
+            merchant: None,
+            payee: None,
+            comment: None,
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            reminder: ReminderId::new("r-1".to_owned()),
+            state: ReminderMarkerState::Planned,
+            notify: false,
+            is_forecast: None,
+        }
+    }
+
+    /// Creates a minimal test budget.
+    fn test_budget() -> Budget {
+        Budget {
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            tag: None,
+            date: NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            income: 1000.0,
+            income_lock: false,
+            outcome: 500.0,
+            outcome_lock: false,
+            is_income_forecast: None,
+            is_outcome_forecast: None,
         }
     }
 
@@ -944,6 +1142,195 @@ mod tests {
                 .remove_accounts(&[AccountId::new("nonexistent".to_owned())])
                 .unwrap();
         }
+
+        #[test]
+        fn upsert_and_read_transactions() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_transactions(vec![
+                    test_transaction("tx-1", "a-1"),
+                    test_transaction("tx-2", "a-2"),
+                ])
+                .unwrap();
+            let txs = storage.transactions().unwrap();
+            assert_eq!(txs.len(), 2);
+        }
+
+        #[test]
+        fn remove_transactions() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_transactions(vec![test_transaction("tx-1", "a-1")])
+                .unwrap();
+            storage
+                .remove_transactions(&[TransactionId::new("tx-1".to_owned())])
+                .unwrap();
+            assert!(storage.transactions().unwrap().is_empty());
+        }
+
+        #[test]
+        fn upsert_and_read_tags() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_tags(vec![test_tag("t-1", "Food")]).unwrap();
+            let tags = storage.tags().unwrap();
+            assert_eq!(tags.len(), 1);
+            assert_eq!(tags[0].title, "Food");
+        }
+
+        #[test]
+        fn remove_tags() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_tags(vec![test_tag("t-1", "Food")]).unwrap();
+            storage
+                .remove_tags(&[TagId::new("t-1".to_owned())])
+                .unwrap();
+            assert!(storage.tags().unwrap().is_empty());
+        }
+
+        #[test]
+        fn upsert_and_read_merchants() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_merchants(vec![test_merchant("m-1")])
+                .unwrap();
+            assert_eq!(storage.merchants().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn remove_merchants() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_merchants(vec![test_merchant("m-1")])
+                .unwrap();
+            storage
+                .remove_merchants(&[MerchantId::new("m-1".to_owned())])
+                .unwrap();
+            assert!(storage.merchants().unwrap().is_empty());
+        }
+
+        #[test]
+        fn upsert_and_read_instruments() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_instruments(vec![test_instrument(840_i32)])
+                .unwrap();
+            assert_eq!(storage.instruments().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn remove_instruments() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_instruments(vec![test_instrument(840_i32)])
+                .unwrap();
+            storage
+                .remove_instruments(&[InstrumentId::new(840_i32)])
+                .unwrap();
+            assert!(storage.instruments().unwrap().is_empty());
+        }
+
+        #[test]
+        fn upsert_and_read_companies() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_companies(vec![test_company(1_i32)]).unwrap();
+            assert_eq!(storage.companies().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn remove_companies() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_companies(vec![test_company(1_i32)]).unwrap();
+            storage.remove_companies(&[CompanyId::new(1_i32)]).unwrap();
+            assert!(storage.companies().unwrap().is_empty());
+        }
+
+        #[test]
+        fn upsert_and_read_countries() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_countries(vec![test_country(1_i32)]).unwrap();
+            assert_eq!(storage.countries().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn remove_countries() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_countries(vec![test_country(1_i32)]).unwrap();
+            storage.remove_countries(&[1_i32]).unwrap();
+            assert!(storage.countries().unwrap().is_empty());
+        }
+
+        #[test]
+        fn upsert_and_read_users() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_users(vec![test_user(1_i64)]).unwrap();
+            assert_eq!(storage.users().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn remove_users() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_users(vec![test_user(1_i64)]).unwrap();
+            storage.remove_users(&[UserId::new(1_i64)]).unwrap();
+            assert!(storage.users().unwrap().is_empty());
+        }
+
+        #[test]
+        fn upsert_and_read_reminders() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_reminders(vec![test_reminder("r-1")])
+                .unwrap();
+            assert_eq!(storage.reminders().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn remove_reminders() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_reminders(vec![test_reminder("r-1")])
+                .unwrap();
+            storage
+                .remove_reminders(&[ReminderId::new("r-1".to_owned())])
+                .unwrap();
+            assert!(storage.reminders().unwrap().is_empty());
+        }
+
+        #[test]
+        fn upsert_and_read_reminder_markers() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_reminder_markers(vec![test_reminder_marker("rm-1")])
+                .unwrap();
+            assert_eq!(storage.reminder_markers().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn remove_reminder_markers() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_reminder_markers(vec![test_reminder_marker("rm-1")])
+                .unwrap();
+            storage
+                .remove_reminder_markers(&[ReminderMarkerId::new("rm-1".to_owned())])
+                .unwrap();
+            assert!(storage.reminder_markers().unwrap().is_empty());
+        }
+
+        #[test]
+        fn upsert_and_read_budgets() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_budgets(vec![test_budget()]).unwrap();
+            assert_eq!(storage.budgets().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn remove_budgets_is_noop() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_budgets(vec![test_budget()]).unwrap();
+            storage.remove_budgets(&["some-id".to_owned()]).unwrap();
+            // Budget removal is a no-op, so count stays the same.
+            assert_eq!(storage.budgets().unwrap().len(), 1);
+        }
     }
 
     #[test]
@@ -1005,6 +1392,14 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn set_and_get_server_timestamp() {
+            let (storage, _dir) = temp_storage();
+            let ts = DateTime::from_timestamp(1_700_000_100, 0).unwrap();
+            storage.set_server_timestamp(ts).await.unwrap();
+            assert_eq!(storage.server_timestamp().await.unwrap(), Some(ts));
+        }
+
+        #[tokio::test]
         async fn upsert_and_read_accounts() {
             let (storage, _dir) = temp_storage();
             let acc = test_account("a-1", "Test");
@@ -1013,6 +1408,256 @@ mod tests {
             let accounts = storage.accounts().await.unwrap();
             assert_eq!(accounts.len(), 1);
             assert_eq!(accounts[0].title, "Test");
+        }
+
+        #[tokio::test]
+        async fn remove_accounts() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_accounts(vec![test_account("a-1", "Test")])
+                .await
+                .unwrap();
+            storage
+                .remove_accounts(&[AccountId::new("a-1".to_owned())])
+                .await
+                .unwrap();
+            assert!(storage.accounts().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_transactions() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_transactions(vec![test_transaction("tx-1", "a-1")])
+                .await
+                .unwrap();
+            assert_eq!(storage.transactions().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_transactions() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_transactions(vec![test_transaction("tx-1", "a-1")])
+                .await
+                .unwrap();
+            storage
+                .remove_transactions(&[TransactionId::new("tx-1".to_owned())])
+                .await
+                .unwrap();
+            assert!(storage.transactions().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_tags() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_tags(vec![test_tag("t-1", "Food")])
+                .await
+                .unwrap();
+            assert_eq!(storage.tags().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_tags() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_tags(vec![test_tag("t-1", "Food")])
+                .await
+                .unwrap();
+            storage
+                .remove_tags(&[TagId::new("t-1".to_owned())])
+                .await
+                .unwrap();
+            assert!(storage.tags().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_merchants() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_merchants(vec![test_merchant("m-1")])
+                .await
+                .unwrap();
+            assert_eq!(storage.merchants().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_merchants() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_merchants(vec![test_merchant("m-1")])
+                .await
+                .unwrap();
+            storage
+                .remove_merchants(&[MerchantId::new("m-1".to_owned())])
+                .await
+                .unwrap();
+            assert!(storage.merchants().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_instruments() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_instruments(vec![test_instrument(840_i32)])
+                .await
+                .unwrap();
+            assert_eq!(storage.instruments().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_instruments() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_instruments(vec![test_instrument(840_i32)])
+                .await
+                .unwrap();
+            storage
+                .remove_instruments(&[InstrumentId::new(840_i32)])
+                .await
+                .unwrap();
+            assert!(storage.instruments().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_companies() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_companies(vec![test_company(1_i32)])
+                .await
+                .unwrap();
+            assert_eq!(storage.companies().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_companies() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_companies(vec![test_company(1_i32)])
+                .await
+                .unwrap();
+            storage
+                .remove_companies(&[CompanyId::new(1_i32)])
+                .await
+                .unwrap();
+            assert!(storage.companies().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_countries() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_countries(vec![test_country(1_i32)])
+                .await
+                .unwrap();
+            assert_eq!(storage.countries().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_countries() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_countries(vec![test_country(1_i32)])
+                .await
+                .unwrap();
+            storage.remove_countries(&[1_i32]).await.unwrap();
+            assert!(storage.countries().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_users() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_users(vec![test_user(1_i64)]).await.unwrap();
+            assert_eq!(storage.users().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_users() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_users(vec![test_user(1_i64)]).await.unwrap();
+            storage.remove_users(&[UserId::new(1_i64)]).await.unwrap();
+            assert!(storage.users().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_reminders() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_reminders(vec![test_reminder("r-1")])
+                .await
+                .unwrap();
+            assert_eq!(storage.reminders().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_reminders() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_reminders(vec![test_reminder("r-1")])
+                .await
+                .unwrap();
+            storage
+                .remove_reminders(&[ReminderId::new("r-1".to_owned())])
+                .await
+                .unwrap();
+            assert!(storage.reminders().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_reminder_markers() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_reminder_markers(vec![test_reminder_marker("rm-1")])
+                .await
+                .unwrap();
+            assert_eq!(storage.reminder_markers().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_reminder_markers() {
+            let (storage, _dir) = temp_storage();
+            storage
+                .upsert_reminder_markers(vec![test_reminder_marker("rm-1")])
+                .await
+                .unwrap();
+            storage
+                .remove_reminder_markers(&[ReminderMarkerId::new("rm-1".to_owned())])
+                .await
+                .unwrap();
+            assert!(storage.reminder_markers().await.unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn upsert_and_read_budgets() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_budgets(vec![test_budget()]).await.unwrap();
+            assert_eq!(storage.budgets().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn remove_budgets_is_noop() {
+            let (storage, _dir) = temp_storage();
+            storage.upsert_budgets(vec![test_budget()]).await.unwrap();
+            storage
+                .remove_budgets(&["some-id".to_owned()])
+                .await
+                .unwrap();
+            assert_eq!(storage.budgets().await.unwrap().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn clear_removes_everything() {
+            let (storage, _dir) = temp_storage();
+            let ts = DateTime::from_timestamp(100, 0).unwrap();
+            storage.set_server_timestamp(ts).await.unwrap();
+            storage
+                .upsert_accounts(vec![test_account("a-1", "Test")])
+                .await
+                .unwrap();
+            storage.clear().await.unwrap();
+            assert!(storage.accounts().await.unwrap().is_empty());
+            assert!(storage.server_timestamp().await.unwrap().is_none());
         }
     }
 }

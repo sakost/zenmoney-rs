@@ -6,9 +6,11 @@
 
 #[cfg(feature = "storage-file")]
 mod file;
+mod memory;
 
 #[cfg(feature = "storage-file")]
 pub use file::FileStorage;
+pub use memory::InMemoryStorage;
 
 /// Generates a storage trait (async or blocking) with all entity methods.
 ///

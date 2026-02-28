@@ -14,7 +14,7 @@ Rust client library for the [ZenMoney](https://zenmoney.ru/) personal finance AP
 - CRUD operations: push (create/update) and delete for all entity types
 - Composable `TransactionFilter` with builder pattern (date range, account, tag, payee, merchant, amount)
 - Category suggestion endpoint
-- Pluggable storage backends (`FileStorage` included, custom backends via `Storage`/`BlockingStorage` traits)
+- Pluggable storage backends (`FileStorage` included, `InMemoryStorage` for testing, custom backends via `Storage`/`BlockingStorage` traits)
 - Strongly-typed models with newtype IDs (`AccountId`, `TagId`, `TransactionId`, etc.)
 - Optional CLI binary for browsing synced data
 
@@ -24,7 +24,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-zenmoney-rs = "0.1"
+zenmoney-rs = "0.3"
 ```
 
 ### Feature flags
@@ -42,7 +42,7 @@ To use only the blocking client without the CLI:
 
 ```toml
 [dependencies]
-zenmoney-rs = { version = "0.1", default-features = false, features = ["blocking", "storage-file"] }
+zenmoney-rs = { version = "0.3", default-features = false, features = ["blocking", "storage-file"] }
 ```
 
 ## Usage
@@ -97,6 +97,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+```
+
+### Testing
+
+Use `InMemoryStorage` for unit and integration tests — no file I/O needed:
+
+```rust
+use zenmoney_rs::storage::InMemoryStorage;
+use zenmoney_rs::zen_money::ZenMoneyBlocking;
+
+let storage = InMemoryStorage::new();
+let client = ZenMoneyBlocking::builder()
+    .token("test-token")
+    .storage(storage)
+    .build()
+    .unwrap();
 ```
 
 ## CLI

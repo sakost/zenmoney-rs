@@ -611,3 +611,595 @@ fn main() -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use chrono::DateTime;
+    use zenmoney_rs::models::{
+        AccountId, AccountType, DiffResponse, InstrumentId, MerchantId, SuggestResponse, TagId,
+        TransactionId, UserId,
+    };
+    use zenmoney_rs::storage::InMemoryStorage;
+
+    /// Creates a test account.
+    fn test_account(id: &str, title: &str, archive: bool) -> Account {
+        Account {
+            id: AccountId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            role: None,
+            instrument: Some(InstrumentId::new(1_i32)),
+            company: None,
+            kind: AccountType::Checking,
+            title: title.to_owned(),
+            sync_id: None,
+            balance: Some(1000.0),
+            start_balance: None,
+            credit_limit: None,
+            in_balance: true,
+            savings: None,
+            enable_correction: false,
+            enable_sms: false,
+            archive,
+            capitalization: None,
+            percent: None,
+            start_date: None,
+            end_date_offset: None,
+            end_date_offset_interval: None,
+            payoff_step: None,
+            payoff_interval: None,
+            balance_correction_type: None,
+            private: None,
+        }
+    }
+
+    /// Creates a test transaction.
+    fn test_transaction(id: &str, account_id: &str, date: NaiveDate) -> Transaction {
+        Transaction {
+            id: TransactionId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            created: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            deleted: false,
+            hold: None,
+            income_instrument: InstrumentId::new(1_i32),
+            income_account: AccountId::new(account_id.to_owned()),
+            income: 0.0,
+            outcome_instrument: InstrumentId::new(1_i32),
+            outcome_account: AccountId::new(account_id.to_owned()),
+            outcome: 50.0,
+            tag: None,
+            merchant: None,
+            payee: Some("Test Payee".to_owned()),
+            original_payee: None,
+            comment: Some("Test comment".to_owned()),
+            date,
+            mcc: None,
+            reminder_marker: None,
+            op_income: None,
+            op_income_instrument: None,
+            op_outcome: None,
+            op_outcome_instrument: None,
+            latitude: None,
+            longitude: None,
+            income_bank_id: None,
+            outcome_bank_id: None,
+            qr_code: None,
+            source: None,
+            viewed: None,
+        }
+    }
+
+    /// Creates a test tag.
+    fn test_tag(id: &str, title: &str) -> Tag {
+        Tag {
+            id: TagId::new(id.to_owned()),
+            changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            user: UserId::new(1_i64),
+            title: title.to_owned(),
+            parent: None,
+            icon: None,
+            picture: None,
+            color: None,
+            show_income: true,
+            show_outcome: true,
+            budget_income: false,
+            budget_outcome: false,
+            required: None,
+            static_id: None,
+            archive: None,
+        }
+    }
+
+    /// Creates a mock `ZenMoneyBlocking` with a pre-populated storage.
+    fn mock_client() -> ZenMoneyBlocking<InMemoryStorage> {
+        ZenMoneyBlocking::builder()
+            .token("test-token")
+            .storage(InMemoryStorage::new())
+            .build()
+            .unwrap()
+    }
+
+    // ── parse_date tests ──────────────────────────────────────────────
+
+    #[test]
+    fn parse_date_valid() {
+        let date = parse_date("2024-01-15").unwrap();
+        assert_eq!(date, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+    }
+
+    #[test]
+    fn parse_date_invalid() {
+        assert!(parse_date("not-a-date").is_err());
+        assert!(parse_date("01-15-2024").is_err());
+    }
+
+    // ── create_storage tests ──────────────────────────────────────────
+
+    #[test]
+    fn create_storage_with_custom_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = create_storage(Some(dir.path().to_path_buf()));
+        assert!(storage.is_ok());
+    }
+
+    #[test]
+    fn create_storage_with_default_dir() {
+        let storage = create_storage(None);
+        assert!(storage.is_ok());
+    }
+
+    // ── resolve_name tests ────────────────────────────────────────────
+
+    #[test]
+    fn resolve_name_found() {
+        let result = resolve_name("account", "Test", |_| Ok(Some(42_i32))).unwrap();
+        assert_eq!(result, Some(42_i32));
+    }
+
+    #[test]
+    fn resolve_name_not_found() {
+        let result = resolve_name::<i32, _>("account", "Missing", |_| Ok(None)).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_name_lookup_error() {
+        let result = resolve_name::<i32, _>("account", "Bad", |_| {
+            Err(zenmoney_rs::error::ZenMoneyError::Storage(Box::from(
+                "lookup failed",
+            )))
+        })
+        .unwrap();
+        assert!(result.is_none());
+    }
+
+    // ── build_transaction_filter tests ────────────────────────────────
+
+    #[test]
+    fn build_filter_no_args() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: None,
+            tag: None,
+            payee: None,
+            min_amount: None,
+            max_amount: None,
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap();
+        assert!(filter.is_some());
+    }
+
+    #[test]
+    fn build_filter_with_date_range() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
+            to: Some(NaiveDate::from_ymd_opt(2024, 12, 31).unwrap()),
+            account: None,
+            tag: None,
+            payee: None,
+            min_amount: None,
+            max_amount: None,
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap().unwrap();
+        assert!(filter.date_from.is_some());
+        assert!(filter.date_to.is_some());
+    }
+
+    #[test]
+    fn build_filter_account_not_found_returns_none() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: Some("Nonexistent".to_owned()),
+            tag: None,
+            payee: None,
+            min_amount: None,
+            max_amount: None,
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap();
+        assert!(filter.is_none());
+    }
+
+    #[test]
+    fn build_filter_tag_not_found_returns_none() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: None,
+            tag: Some("Nonexistent".to_owned()),
+            payee: None,
+            min_amount: None,
+            max_amount: None,
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap();
+        assert!(filter.is_none());
+    }
+
+    #[test]
+    fn build_filter_with_account_found() {
+        let storage = InMemoryStorage::new();
+        storage
+            .upsert_accounts(vec![test_account("a-1", "Checking", false)])
+            .unwrap();
+        let client = ZenMoneyBlocking::builder()
+            .token("test")
+            .storage(storage)
+            .build()
+            .unwrap();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: Some("Checking".to_owned()),
+            tag: None,
+            payee: None,
+            min_amount: None,
+            max_amount: None,
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap().unwrap();
+        assert!(filter.account.is_some());
+    }
+
+    #[test]
+    fn build_filter_with_tag_found() {
+        let storage = InMemoryStorage::new();
+        storage.upsert_tags(vec![test_tag("t-1", "Food")]).unwrap();
+        let client = ZenMoneyBlocking::builder()
+            .token("test")
+            .storage(storage)
+            .build()
+            .unwrap();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: None,
+            tag: Some("Food".to_owned()),
+            payee: None,
+            min_amount: None,
+            max_amount: None,
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap().unwrap();
+        assert!(filter.tag.is_some());
+    }
+
+    #[test]
+    fn build_filter_with_payee() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: None,
+            tag: None,
+            payee: Some("Coffee".to_owned()),
+            min_amount: None,
+            max_amount: None,
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap().unwrap();
+        assert!(filter.payee.is_some());
+    }
+
+    #[test]
+    fn build_filter_with_amount_range() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: None,
+            tag: None,
+            payee: None,
+            min_amount: Some(10.0),
+            max_amount: Some(100.0),
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap().unwrap();
+        assert!(filter.min_amount.is_some());
+        assert!(filter.max_amount.is_some());
+    }
+
+    #[test]
+    fn build_filter_with_min_only() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: None,
+            tag: None,
+            payee: None,
+            min_amount: Some(10.0),
+            max_amount: None,
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap().unwrap();
+        assert!(filter.min_amount.is_some());
+        assert!(filter.max_amount.is_none());
+    }
+
+    #[test]
+    fn build_filter_with_max_only() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: None,
+            tag: None,
+            payee: None,
+            min_amount: None,
+            max_amount: Some(100.0),
+        };
+        let filter = build_transaction_filter(&client, &args).unwrap().unwrap();
+        assert!(filter.min_amount.is_none());
+        assert!(filter.max_amount.is_some());
+    }
+
+    // ── print function tests ─────────────────────────────────────────
+
+    #[test]
+    fn print_accounts_table_empty() {
+        assert!(print_accounts_table(&[]).is_ok());
+    }
+
+    #[test]
+    fn print_accounts_table_with_data() {
+        let accounts = vec![
+            test_account("a-1", "Checking", false),
+            test_account("a-2", "Savings", false),
+        ];
+        assert!(print_accounts_table(&accounts).is_ok());
+    }
+
+    #[test]
+    fn print_transactions_table_empty() {
+        assert!(print_transactions_table(&[]).is_ok());
+    }
+
+    #[test]
+    fn print_transactions_table_with_data() {
+        let txs = vec![
+            test_transaction("tx-1", "a-1", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
+            {
+                let mut tx =
+                    test_transaction("tx-2", "a-1", NaiveDate::from_ymd_opt(2024, 1, 2).unwrap());
+                tx.income = 200.0;
+                tx.outcome = 0.0;
+                tx.payee = None;
+                tx.comment = None;
+                tx
+            },
+        ];
+        assert!(print_transactions_table(&txs).is_ok());
+    }
+
+    #[test]
+    fn print_tags_table_empty() {
+        assert!(print_tags_table(&[]).is_ok());
+    }
+
+    #[test]
+    fn print_tags_table_with_data() {
+        let tags = vec![test_tag("t-1", "Food"), {
+            let mut t = test_tag("t-2", "Fast Food");
+            t.parent = Some(TagId::new("t-1".to_owned()));
+            t
+        }];
+        assert!(print_tags_table(&tags).is_ok());
+    }
+
+    #[test]
+    fn print_diff_summary_works() {
+        let response = DiffResponse {
+            server_timestamp: DateTime::from_timestamp(1_700_000_100, 0).unwrap(),
+            instrument: Vec::new(),
+            country: Vec::new(),
+            company: Vec::new(),
+            user: Vec::new(),
+            account: vec![test_account("a-1", "Test", false)],
+            tag: Vec::new(),
+            merchant: Vec::new(),
+            transaction: Vec::new(),
+            reminder: Vec::new(),
+            reminder_marker: Vec::new(),
+            budget: Vec::new(),
+            deletion: Vec::new(),
+        };
+        assert!(print_diff_summary(&response).is_ok());
+    }
+
+    #[test]
+    fn print_suggest_result_works() {
+        let response = SuggestResponse {
+            payee: Some("Starbucks".to_owned()),
+            merchant: Some(MerchantId::new("m-1".to_owned())),
+            tag: Some(vec![TagId::new("t-1".to_owned())]),
+        };
+        assert!(print_suggest_result(&response).is_ok());
+    }
+
+    #[test]
+    fn print_suggest_result_empty() {
+        let response = SuggestResponse {
+            payee: None,
+            merchant: None,
+            tag: None,
+        };
+        assert!(print_suggest_result(&response).is_ok());
+    }
+
+    // ── make_spinner test ────────────────────────────────────────────
+
+    #[test]
+    fn make_spinner_creates_spinner() {
+        let spinner = make_spinner("Testing...");
+        spinner.finish_and_clear();
+    }
+
+    // ── cmd_* tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn cmd_accounts_empty() {
+        let client = mock_client();
+        let code = cmd_accounts(&client).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn cmd_accounts_with_data() {
+        let storage = InMemoryStorage::new();
+        storage
+            .upsert_accounts(vec![test_account("a-1", "Checking", false)])
+            .unwrap();
+        let client = ZenMoneyBlocking::builder()
+            .token("test")
+            .storage(storage)
+            .build()
+            .unwrap();
+        let code = cmd_accounts(&client).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn cmd_tags_empty() {
+        let client = mock_client();
+        let code = cmd_tags(&client).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn cmd_tags_with_data() {
+        let storage = InMemoryStorage::new();
+        storage.upsert_tags(vec![test_tag("t-1", "Food")]).unwrap();
+        let client = ZenMoneyBlocking::builder()
+            .token("test")
+            .storage(storage)
+            .build()
+            .unwrap();
+        let code = cmd_tags(&client).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn cmd_transactions_empty() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: None,
+            tag: None,
+            payee: None,
+            min_amount: None,
+            max_amount: None,
+        };
+        let code = cmd_transactions(&client, &args).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn cmd_transactions_with_data() {
+        let storage = InMemoryStorage::new();
+        storage
+            .upsert_transactions(vec![test_transaction(
+                "tx-1",
+                "a-1",
+                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            )])
+            .unwrap();
+        let client = ZenMoneyBlocking::builder()
+            .token("test")
+            .storage(storage)
+            .build()
+            .unwrap();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: None,
+            tag: None,
+            payee: None,
+            min_amount: None,
+            max_amount: None,
+        };
+        let code = cmd_transactions(&client, &args).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn cmd_transactions_filter_not_found() {
+        let client = mock_client();
+        let args = TransactionArgs {
+            from: None,
+            to: None,
+            account: Some("Nonexistent".to_owned()),
+            tag: None,
+            payee: None,
+            min_amount: None,
+            max_amount: None,
+        };
+        let code = cmd_transactions(&client, &args).unwrap();
+        assert_eq!(code, ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn cmd_suggest_no_args() {
+        let client = mock_client();
+        let code = cmd_suggest(&client, None, None).unwrap();
+        assert_eq!(code, ExitCode::FAILURE);
+    }
+
+    // ── dispatch tests ───────────────────────────────────────────────
+
+    #[test]
+    fn dispatch_accounts() {
+        let client = mock_client();
+        let code = dispatch(&client, Command::Accounts).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn dispatch_tags() {
+        let client = mock_client();
+        let code = dispatch(&client, Command::Tags).unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn dispatch_transactions() {
+        let client = mock_client();
+        let code = dispatch(
+            &client,
+            Command::Transactions(TransactionArgs {
+                from: None,
+                to: None,
+                account: None,
+                tag: None,
+                payee: None,
+                min_amount: None,
+                max_amount: None,
+            }),
+        )
+        .unwrap();
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+}
