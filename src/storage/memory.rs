@@ -459,7 +459,7 @@ impl super::Storage for InMemoryStorage {
     ) -> impl Future<Output = Result<()>> + Send {
         future::ready(
             self.with_lock(|inner| {
-                upsert_by_key(&mut inner.reminder_markers, items, |r| r.id.clone())
+                upsert_by_key(&mut inner.reminder_markers, items, |r| r.id.clone());
             }),
         )
     }
@@ -532,7 +532,7 @@ impl super::Storage for InMemoryStorage {
     ) -> impl Future<Output = Result<()>> + Send {
         future::ready(
             self.with_lock(|inner| {
-                remove_by_key(&mut inner.reminder_markers, ids, |r| r.id.clone())
+                remove_by_key(&mut inner.reminder_markers, ids, |r| r.id.clone());
             }),
         )
     }
