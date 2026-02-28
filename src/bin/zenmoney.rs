@@ -5,6 +5,7 @@
 )]
 
 use std::io::{self, Write as _};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
@@ -25,6 +26,9 @@ const TOKEN_ENV: &str = "ZENMONEY_TOKEN";
 #[derive(Debug, Parser)]
 #[command(name = "zenmoney", version, about)]
 struct Cli {
+    /// Override the storage directory (default: XDG data dir).
+    #[arg(long, global = true, value_name = "DIR")]
+    data_dir: Option<PathBuf>,
     /// Subcommand to execute.
     #[command(subcommand)]
     command: Command,
@@ -126,7 +130,7 @@ fn run() -> io::Result<ExitCode> {
         return Ok(ExitCode::FAILURE);
     };
 
-    let storage = match create_storage() {
+    let storage = match create_storage(cli.data_dir) {
         Ok(storage) => storage,
         Err(err) => {
             writeln!(
@@ -157,9 +161,13 @@ fn run() -> io::Result<ExitCode> {
     dispatch(&client, cli.command)
 }
 
-/// Creates the storage backend in the default XDG data directory.
-fn create_storage() -> zenmoney_rs::error::Result<FileStorage> {
-    let dir = FileStorage::default_dir()?;
+/// Creates the storage backend, using `data_dir` if provided or the
+/// default XDG data directory otherwise.
+fn create_storage(data_dir: Option<PathBuf>) -> zenmoney_rs::error::Result<FileStorage> {
+    let dir = match data_dir {
+        Some(dir) => dir,
+        None => FileStorage::default_dir()?,
+    };
     FileStorage::new(dir)
 }
 

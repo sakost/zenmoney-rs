@@ -7,7 +7,7 @@ use core::hash::Hash;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -46,6 +46,8 @@ const REMINDERS_FILE: &str = "reminders.json";
 const REMINDER_MARKERS_FILE: &str = "reminder_markers.json";
 /// File name for budgets.
 const BUDGETS_FILE: &str = "budgets.json";
+/// Sentinel file used for cross-process file locking.
+const LOCK_FILE: &str = "storage.lock";
 
 /// Metadata stored alongside entity files.
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -60,10 +62,21 @@ struct Meta {
 /// Each entity type is stored in a separate `.json` file. A `meta.json`
 /// file tracks the last server timestamp for incremental sync.
 ///
+/// # Concurrency
+///
+/// Thread safety within a single process is provided by an in-process
+/// [`Mutex`]. Cross-process safety is achieved via an advisory file lock
+/// on `storage.lock` (using [`std::fs::File::lock`] /
+/// [`std::fs::File::lock_shared`]).
+///
+/// Read operations acquire a shared lock (allowing concurrent readers),
+/// while write operations acquire an exclusive lock.
+///
 /// # File layout
 ///
 /// ```text
 /// <dir>/
+///   storage.lock          (cross-process lock sentinel)
 ///   meta.json
 ///   accounts.json
 ///   transactions.json
@@ -81,24 +94,37 @@ struct Meta {
 pub struct FileStorage {
     /// Root directory containing all JSON files.
     dir: PathBuf,
-    /// Mutex serializing concurrent file access.
+    /// Mutex serializing concurrent in-process access.
     lock: Mutex<()>,
+    /// Sentinel file for cross-process advisory locking.
+    lock_file: fs::File,
 }
 
 impl FileStorage {
     /// Creates a new file storage rooted at the given directory.
     ///
-    /// Creates the directory (and parents) if it does not exist.
+    /// Creates the directory (and parents) if it does not exist. Also
+    /// opens (or creates) the `storage.lock` sentinel file used for
+    /// cross-process advisory locking.
     ///
     /// # Errors
     ///
-    /// Returns an error if the directory cannot be created.
+    /// Returns an error if the directory cannot be created or the lock
+    /// file cannot be opened.
     #[inline]
     pub fn new(dir: PathBuf) -> Result<Self> {
         fs::create_dir_all(&dir).map_err(storage_io_error)?;
+        let lock_file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join(LOCK_FILE))
+            .map_err(storage_io_error)?;
         Ok(Self {
             dir,
             lock: Mutex::new(()),
+            lock_file,
         })
     }
 
@@ -124,6 +150,36 @@ impl FileStorage {
     /// Returns the full path for a given file name.
     fn path(&self, name: &str) -> PathBuf {
         self.dir.join(name)
+    }
+
+    /// Acquires an in-process mutex guard and a shared (read) file lock,
+    /// executes `op`, then releases the file lock.
+    fn with_shared_lock<R, F: FnOnce() -> Result<R>>(&self, op: F) -> Result<R> {
+        let _guard: MutexGuard<'_, ()> = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
+        self.lock_file.lock_shared().map_err(storage_io_error)?;
+        let result = op();
+        // Only surface the unlock error when the operation succeeded;
+        // otherwise the original error is more useful.
+        if let Err(err) = self.lock_file.unlock()
+            && result.is_ok()
+        {
+            return Err(storage_io_error(err));
+        }
+        result
+    }
+
+    /// Acquires an in-process mutex guard and an exclusive (write) file
+    /// lock, executes `op`, then releases the file lock.
+    fn with_exclusive_lock<R, F: FnOnce() -> Result<R>>(&self, op: F) -> Result<R> {
+        let _guard: MutexGuard<'_, ()> = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
+        self.lock_file.lock().map_err(storage_io_error)?;
+        let result = op();
+        if let Err(err) = self.lock_file.unlock()
+            && result.is_ok()
+        {
+            return Err(storage_io_error(err));
+        }
+        result
     }
 
     /// Reads and deserializes a JSON file. Returns an empty `Vec` if the
@@ -176,10 +232,11 @@ impl FileStorage {
         if new_items.is_empty() {
             return Ok(());
         }
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        let existing: Vec<T> = self.read_entities(name)?;
-        let merged = upsert_by_key(existing, new_items, key_fn);
-        self.write_entities(name, &merged)
+        self.with_exclusive_lock(|| {
+            let existing: Vec<T> = self.read_entities(name)?;
+            let merged = upsert_by_key(existing, new_items, key_fn);
+            self.write_entities(name, &merged)
+        })
     }
 
     /// Removes items from an entity file by key.
@@ -191,55 +248,62 @@ impl FileStorage {
         if ids.is_empty() {
             return Ok(());
         }
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        let existing: Vec<T> = self.read_entities(name)?;
-        let filtered = remove_by_key(existing, ids, key_fn);
-        self.write_entities(name, &filtered)
+        self.with_exclusive_lock(|| {
+            let existing: Vec<T> = self.read_entities(name)?;
+            let filtered = remove_by_key(existing, ids, key_fn);
+            self.write_entities(name, &filtered)
+        })
     }
 
     /// Reads `server_timestamp` from meta (with lock).
     fn read_server_timestamp(&self) -> Result<Option<DateTime<Utc>>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        let meta = self.read_meta()?;
-        Ok(meta
-            .server_timestamp
-            .and_then(|ts| DateTime::from_timestamp(ts, 0_u32)))
+        self.with_shared_lock(|| {
+            let meta = self.read_meta()?;
+            Ok(meta
+                .server_timestamp
+                .and_then(|ts| DateTime::from_timestamp(ts, 0_u32)))
+        })
     }
 
     /// Writes `server_timestamp` to meta (with lock).
     fn write_server_timestamp(&self, timestamp: DateTime<Utc>) -> Result<()> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        let mut meta = self.read_meta()?;
-        meta.server_timestamp = Some(timestamp.timestamp());
-        self.write_meta(&meta)
+        self.with_exclusive_lock(|| {
+            let mut meta = self.read_meta()?;
+            meta.server_timestamp = Some(timestamp.timestamp());
+            self.write_meta(&meta)
+        })
     }
 
     /// Deletes all entity files and metadata.
+    ///
+    /// The `storage.lock` sentinel is intentionally preserved — it is
+    /// infrastructure, not data.
     fn clear_all(&self) -> Result<()> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        let files = [
-            META_FILE,
-            ACCOUNTS_FILE,
-            TRANSACTIONS_FILE,
-            TAGS_FILE,
-            MERCHANTS_FILE,
-            INSTRUMENTS_FILE,
-            COMPANIES_FILE,
-            COUNTRIES_FILE,
-            USERS_FILE,
-            REMINDERS_FILE,
-            REMINDER_MARKERS_FILE,
-            BUDGETS_FILE,
-        ];
-        for name in files {
-            let path = self.path(name);
-            match fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => return Err(storage_io_error(err)),
+        self.with_exclusive_lock(|| {
+            let files = [
+                META_FILE,
+                ACCOUNTS_FILE,
+                TRANSACTIONS_FILE,
+                TAGS_FILE,
+                MERCHANTS_FILE,
+                INSTRUMENTS_FILE,
+                COMPANIES_FILE,
+                COUNTRIES_FILE,
+                USERS_FILE,
+                REMINDERS_FILE,
+                REMINDER_MARKERS_FILE,
+                BUDGETS_FILE,
+            ];
+            for name in files {
+                let path = self.path(name);
+                match fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(err) => return Err(storage_io_error(err)),
+                }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }
 
@@ -357,68 +421,57 @@ impl super::BlockingStorage for FileStorage {
 
     #[inline]
     fn accounts(&self) -> Result<Vec<Account>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(ACCOUNTS_FILE)
+        self.with_shared_lock(|| self.read_entities(ACCOUNTS_FILE))
     }
 
     #[inline]
     fn transactions(&self) -> Result<Vec<Transaction>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(TRANSACTIONS_FILE)
+        self.with_shared_lock(|| self.read_entities(TRANSACTIONS_FILE))
     }
 
     #[inline]
     fn tags(&self) -> Result<Vec<Tag>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(TAGS_FILE)
+        self.with_shared_lock(|| self.read_entities(TAGS_FILE))
     }
 
     #[inline]
     fn merchants(&self) -> Result<Vec<Merchant>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(MERCHANTS_FILE)
+        self.with_shared_lock(|| self.read_entities(MERCHANTS_FILE))
     }
 
     #[inline]
     fn instruments(&self) -> Result<Vec<Instrument>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(INSTRUMENTS_FILE)
+        self.with_shared_lock(|| self.read_entities(INSTRUMENTS_FILE))
     }
 
     #[inline]
     fn companies(&self) -> Result<Vec<Company>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(COMPANIES_FILE)
+        self.with_shared_lock(|| self.read_entities(COMPANIES_FILE))
     }
 
     #[inline]
     fn countries(&self) -> Result<Vec<Country>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(COUNTRIES_FILE)
+        self.with_shared_lock(|| self.read_entities(COUNTRIES_FILE))
     }
 
     #[inline]
     fn users(&self) -> Result<Vec<User>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(USERS_FILE)
+        self.with_shared_lock(|| self.read_entities(USERS_FILE))
     }
 
     #[inline]
     fn reminders(&self) -> Result<Vec<Reminder>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(REMINDERS_FILE)
+        self.with_shared_lock(|| self.read_entities(REMINDERS_FILE))
     }
 
     #[inline]
     fn reminder_markers(&self) -> Result<Vec<ReminderMarker>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(REMINDER_MARKERS_FILE)
+        self.with_shared_lock(|| self.read_entities(REMINDER_MARKERS_FILE))
     }
 
     #[inline]
     fn budgets(&self) -> Result<Vec<Budget>> {
-        let _guard = self.lock.lock().map_err(|err| lock_poison_error(&err))?;
-        self.read_entities(BUDGETS_FILE)
+        self.with_shared_lock(|| self.read_entities(BUDGETS_FILE))
     }
 
     #[inline]
@@ -558,112 +611,57 @@ impl super::Storage for FileStorage {
 
     #[inline]
     fn accounts(&self) -> impl Future<Output = Result<Vec<Account>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(ACCOUNTS_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(ACCOUNTS_FILE)))
     }
 
     #[inline]
     fn transactions(&self) -> impl Future<Output = Result<Vec<Transaction>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(TRANSACTIONS_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(TRANSACTIONS_FILE)))
     }
 
     #[inline]
     fn tags(&self) -> impl Future<Output = Result<Vec<Tag>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(TAGS_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(TAGS_FILE)))
     }
 
     #[inline]
     fn merchants(&self) -> impl Future<Output = Result<Vec<Merchant>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(MERCHANTS_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(MERCHANTS_FILE)))
     }
 
     #[inline]
     fn instruments(&self) -> impl Future<Output = Result<Vec<Instrument>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(INSTRUMENTS_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(INSTRUMENTS_FILE)))
     }
 
     #[inline]
     fn companies(&self) -> impl Future<Output = Result<Vec<Company>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(COMPANIES_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(COMPANIES_FILE)))
     }
 
     #[inline]
     fn countries(&self) -> impl Future<Output = Result<Vec<Country>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(COUNTRIES_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(COUNTRIES_FILE)))
     }
 
     #[inline]
     fn users(&self) -> impl Future<Output = Result<Vec<User>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(USERS_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(USERS_FILE)))
     }
 
     #[inline]
     fn reminders(&self) -> impl Future<Output = Result<Vec<Reminder>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(REMINDERS_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(REMINDERS_FILE)))
     }
 
     #[inline]
     fn reminder_markers(&self) -> impl Future<Output = Result<Vec<ReminderMarker>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(REMINDER_MARKERS_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(REMINDER_MARKERS_FILE)))
     }
 
     #[inline]
     fn budgets(&self) -> impl Future<Output = Result<Vec<Budget>>> + Send {
-        let result = self
-            .lock
-            .lock()
-            .map_err(|err| lock_poison_error(&err))
-            .and_then(|_guard| self.read_entities(BUDGETS_FILE));
-        core::future::ready(result)
+        core::future::ready(self.with_shared_lock(|| self.read_entities(BUDGETS_FILE)))
     }
 
     #[inline]
@@ -946,6 +944,53 @@ mod tests {
                 .remove_accounts(&[AccountId::new("nonexistent".to_owned())])
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn lockfile_created_on_construction() {
+        let (storage, _dir) = temp_storage();
+        assert!(storage.path(LOCK_FILE).exists());
+    }
+
+    #[test]
+    fn clear_preserves_lockfile() {
+        let (storage, _dir) = temp_storage();
+        storage.clear_all().unwrap();
+        assert!(storage.path(LOCK_FILE).exists());
+    }
+
+    #[cfg(feature = "blocking")]
+    #[test]
+    fn concurrent_upserts_are_safe() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let (storage, _dir) = temp_storage();
+        let storage = Arc::new(storage);
+        let num_threads: usize = 8;
+        let items_per_thread: usize = 50;
+
+        let handles: Vec<_> = (0..num_threads)
+            .map(|thread_idx| {
+                let storage = Arc::clone(&storage);
+                thread::spawn(move || {
+                    use crate::storage::BlockingStorage;
+                    for item_idx in 0..items_per_thread {
+                        let id = format!("t{thread_idx}-{item_idx}");
+                        let acc = test_account(&id, &format!("Account {id}"));
+                        storage.upsert_accounts(vec![acc]).unwrap();
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        use crate::storage::BlockingStorage;
+        let accounts = storage.accounts().unwrap();
+        assert_eq!(accounts.len(), num_threads * items_per_thread);
     }
 
     #[cfg(feature = "async")]
