@@ -522,7 +522,9 @@ macro_rules! define_zen_money {
                 self.storage.budgets() $( .$await_ext )?
             }
 
-            /// Returns transactions matching the given filter.
+            /// Returns non-deleted transactions matching the given filter.
+            ///
+            /// Transactions with `deleted: true` are automatically excluded.
             ///
             /// # Errors
             ///
@@ -532,7 +534,7 @@ macro_rules! define_zen_money {
                 filter: &TransactionFilter,
             ) -> Result<Vec<Transaction>> {
                 let all = self.storage.transactions() $( .$await_ext )? ?;
-                Ok(all.into_iter().filter(|tx| filter.matches(tx)).collect())
+                Ok(all.into_iter().filter(|tx| !tx.deleted && filter.matches(tx)).collect())
             }
 
             /// Returns transactions within a date range (inclusive).
@@ -807,6 +809,7 @@ macro_rules! define_zen_money {
                 );
                 let response = self.client.diff(&request) $( .$await_ext )? ?;
                 self.apply_diff(&response) $( .$await_ext )? ?;
+                self.storage.remove_accounts(ids) $( .$await_ext )? ?;
                 Ok(response)
             }
 
@@ -830,6 +833,7 @@ macro_rules! define_zen_money {
                 );
                 let response = self.client.diff(&request) $( .$await_ext )? ?;
                 self.apply_diff(&response) $( .$await_ext )? ?;
+                self.storage.remove_transactions(ids) $( .$await_ext )? ?;
                 Ok(response)
             }
 
@@ -853,6 +857,7 @@ macro_rules! define_zen_money {
                 );
                 let response = self.client.diff(&request) $( .$await_ext )? ?;
                 self.apply_diff(&response) $( .$await_ext )? ?;
+                self.storage.remove_tags(ids) $( .$await_ext )? ?;
                 Ok(response)
             }
 
@@ -876,6 +881,7 @@ macro_rules! define_zen_money {
                 );
                 let response = self.client.diff(&request) $( .$await_ext )? ?;
                 self.apply_diff(&response) $( .$await_ext )? ?;
+                self.storage.remove_merchants(ids) $( .$await_ext )? ?;
                 Ok(response)
             }
 
@@ -899,6 +905,7 @@ macro_rules! define_zen_money {
                 );
                 let response = self.client.diff(&request) $( .$await_ext )? ?;
                 self.apply_diff(&response) $( .$await_ext )? ?;
+                self.storage.remove_reminders(ids) $( .$await_ext )? ?;
                 Ok(response)
             }
 
@@ -922,6 +929,7 @@ macro_rules! define_zen_money {
                 );
                 let response = self.client.diff(&request) $( .$await_ext )? ?;
                 self.apply_diff(&response) $( .$await_ext )? ?;
+                self.storage.remove_reminder_markers(ids) $( .$await_ext )? ?;
                 Ok(response)
             }
 

@@ -70,13 +70,13 @@ pub struct Transaction {
     #[serde(default, rename = "outcomeBankID")]
     pub outcome_bank_id: Option<String>,
     /// QR code data.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub qr_code: Option<String>,
     /// Transaction source (e.g. "import", "user").
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     /// Whether the transaction has been viewed.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub viewed: Option<bool>,
 }
 
