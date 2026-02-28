@@ -49,6 +49,13 @@ Rust client/library for the ZenMoney API. Uses Rust edition 2024.
 - Public API types must derive or implement `Debug`. Prefer also deriving `Clone`, `PartialEq`, `Eq` where appropriate.
 - Keep `pub` visibility to the minimum necessary. Default to private; only make items public when needed by external consumers.
 
+### Commit Messages
+- Use [Conventional Commits](https://www.conventionalcommits.org/) format: `<type>(<optional scope>): <Description>`
+- Start the description with a **capital letter**, **do not end with a period**
+- Allowed types: `feat`, `fix`, `docs`, `perf`, `refactor`, `build`, `ci`, `test`, `chore`
+- Append `!` after type/scope for breaking changes: `feat!: Rename sync to incremental_sync`
+- See `CONTRIBUTING.md` for full details and examples
+
 ### Dependencies
 - Avoid adding dependencies for trivial functionality that can be written in a few lines.
 - Prefer well-maintained, widely-used crates from the Rust ecosystem.
