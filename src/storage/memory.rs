@@ -457,11 +457,9 @@ impl super::Storage for InMemoryStorage {
         &self,
         items: Vec<ReminderMarker>,
     ) -> impl Future<Output = Result<()>> + Send {
-        future::ready(
-            self.with_lock(|inner| {
-                upsert_by_key(&mut inner.reminder_markers, items, |r| r.id.clone());
-            }),
-        )
+        future::ready(self.with_lock(|inner| {
+            upsert_by_key(&mut inner.reminder_markers, items, |r| r.id.clone());
+        }))
     }
 
     #[inline]
@@ -530,11 +528,9 @@ impl super::Storage for InMemoryStorage {
         &self,
         ids: &[ReminderMarkerId],
     ) -> impl Future<Output = Result<()>> + Send {
-        future::ready(
-            self.with_lock(|inner| {
-                remove_by_key(&mut inner.reminder_markers, ids, |r| r.id.clone());
-            }),
-        )
+        future::ready(self.with_lock(|inner| {
+            remove_by_key(&mut inner.reminder_markers, ids, |r| r.id.clone());
+        }))
     }
 
     #[inline]
