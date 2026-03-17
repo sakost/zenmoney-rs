@@ -24,15 +24,15 @@ pub struct Transaction {
     /// Whether the transaction is on hold (pending).
     pub hold: Option<bool>,
     /// Income currency instrument.
-    pub income_instrument: InstrumentId,
+    pub income_instrument: Option<InstrumentId>,
     /// Income destination account.
-    pub income_account: AccountId,
+    pub income_account: Option<AccountId>,
     /// Income amount (>= 0).
     pub income: f64,
     /// Outcome currency instrument.
-    pub outcome_instrument: InstrumentId,
+    pub outcome_instrument: Option<InstrumentId>,
     /// Outcome source account.
-    pub outcome_account: AccountId,
+    pub outcome_account: Option<AccountId>,
     /// Outcome amount (>= 0).
     pub outcome: f64,
     /// Associated category tags.

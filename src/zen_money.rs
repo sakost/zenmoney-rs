@@ -132,7 +132,7 @@ impl TransactionFilter {
     fn matches_account(&self, tx: &Transaction) -> bool {
         self.account
             .as_ref()
-            .is_none_or(|acc| tx.income_account == *acc || tx.outcome_account == *acc)
+            .is_none_or(|acc| tx.income_account.as_ref().is_some_and(|a| *a == *acc) || tx.outcome_account.as_ref().is_some_and(|a| *a == *acc))
     }
 
     /// Checks tag criteria.
