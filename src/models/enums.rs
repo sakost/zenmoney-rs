@@ -40,11 +40,16 @@ pub enum Interval {
 
 /// Payoff interval for loan/deposit accounts.
 ///
-/// A subset of [`Interval`] — only month and year are valid for payoff
-/// schedules.
+/// A subset of [`Interval`] — used for payoff schedules and account
+/// date offsets. Some accounts (e.g. short-term loans) may use day or
+/// week intervals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PayoffInterval {
+    /// Daily payoff.
+    Day,
+    /// Weekly payoff.
+    Week,
     /// Monthly payoff.
     Month,
     /// Yearly payoff.
@@ -134,6 +139,8 @@ mod tests {
     #[test]
     fn payoff_interval_serde_roundtrip() {
         let variants = [
+            (PayoffInterval::Day, r#""day""#),
+            (PayoffInterval::Week, r#""week""#),
             (PayoffInterval::Month, r#""month""#),
             (PayoffInterval::Year, r#""year""#),
         ];
