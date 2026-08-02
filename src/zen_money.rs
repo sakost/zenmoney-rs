@@ -1998,6 +1998,61 @@ mod tests {
         }
 
         #[test]
+        fn sync_error_reports_field_path() {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let mock_server = rt.block_on(wiremock::MockServer::start());
+            rt.block_on(async {
+                wiremock::Mock::given(wiremock::matchers::method("POST"))
+                    .and(wiremock::matchers::path("/v8/diff/"))
+                    .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(
+                        &serde_json::json!({
+                            "serverTimestamp": 1_700_000_100,
+                            "account": [{
+                                "id": "a-1",
+                                "changed": 1_700_000_000,
+                                "user": 1,
+                                "role": null,
+                                "instrument": 2,
+                                "company": null,
+                                "type": "checking",
+                                "title": null,
+                                "syncID": null,
+                                "balance": 0.0,
+                                "startBalance": 0.0,
+                                "creditLimit": 0.0,
+                                "inBalance": true,
+                                "savings": null,
+                                "enableCorrection": false,
+                                "enableSMS": false,
+                                "archive": false,
+                                "capitalization": null,
+                                "percent": null,
+                                "startDate": null,
+                                "endDateOffset": null,
+                                "endDateOffsetInterval": null,
+                                "payoffStep": null,
+                                "payoffInterval": null
+                            }]
+                        }),
+                    ))
+                    .mount(&mock_server)
+                    .await;
+            });
+            let client = ZenMoneyBlocking::builder()
+                .token("test-token")
+                .base_url(mock_server.uri())
+                .storage(InMemoryStorage::new())
+                .build()
+                .unwrap();
+            let err = client.sync().unwrap_err();
+            let msg = err.to_string();
+            assert!(
+                msg.contains("account[0].title"),
+                "error message should name the offending field, got: {msg}"
+            );
+        }
+
+        #[test]
         fn full_sync_clears_and_syncs() {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let mock_server = rt.block_on(wiremock::MockServer::start());

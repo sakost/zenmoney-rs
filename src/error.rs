@@ -22,6 +22,17 @@ pub enum ZenMoneyError {
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
+    /// An API response failed to deserialize at a specific field.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[error("deserialization error at `{path}`: {source}")]
+    ResponseDeserialization {
+        /// Path to the offending JSON field (e.g. `transaction[3].payee`).
+        path: String,
+        /// Underlying JSON error.
+        #[source]
+        source: serde_json::Error,
+    },
+
     /// Token storage backend failed.
     #[error("token storage error: {0}")]
     TokenStorage(Box<dyn core::error::Error + Send + Sync>),
