@@ -40,16 +40,9 @@ pub enum Interval {
 
 /// Payoff interval for loan/deposit accounts.
 ///
-/// A subset of [`Interval`] — only month and year are valid for payoff
-/// schedules.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum PayoffInterval {
-    /// Monthly payoff.
-    Month,
-    /// Yearly payoff.
-    Year,
-}
+/// The API returns any [`Interval`] value here, including `day` and `week`
+/// for accounts with sub-monthly payoff schedules.
+pub type PayoffInterval = Interval;
 
 /// State of a reminder marker instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -134,6 +127,8 @@ mod tests {
     #[test]
     fn payoff_interval_serde_roundtrip() {
         let variants = [
+            (PayoffInterval::Day, r#""day""#),
+            (PayoffInterval::Week, r#""week""#),
             (PayoffInterval::Month, r#""month""#),
             (PayoffInterval::Year, r#""year""#),
         ];
