@@ -11,6 +11,23 @@ const DIFF_PATH: &str = "/v8/diff/";
 /// Suggest endpoint path.
 const SUGGEST_PATH: &str = "/v8/suggest/";
 
+/// Deserializes a JSON response body, reporting the JSON path to the
+/// offending field on failure (e.g. `transaction[3].payee`).
+#[cfg(any(feature = "async", feature = "blocking"))]
+fn parse_json_response<Resp: serde::de::DeserializeOwned>(
+    body: &str,
+) -> crate::error::Result<Resp> {
+    let mut deserializer = serde_json::Deserializer::from_str(body);
+    let value = serde_path_to_error::deserialize(&mut deserializer).map_err(|err| {
+        crate::error::ZenMoneyError::ResponseDeserialization {
+            path: err.path().to_string(),
+            source: err.into_inner(),
+        }
+    })?;
+    deserializer.end()?;
+    Ok(value)
+}
+
 /// Generates a ZenMoney client (async or blocking) with builder, methods, and tests.
 macro_rules! define_client {
     (
@@ -159,7 +176,7 @@ macro_rules! define_client {
                 if status.is_success() {
                     let body = response.text() $( .$await_ext )? ?;
                     tracing::trace!(body_len = body.len(), "parsing response body");
-                    serde_json::from_str(&body).map_err(ZenMoneyError::from)
+                    super::parse_json_response(&body)
                 } else {
                     let message = response
                         .text()
