@@ -646,7 +646,7 @@ mod tests {
         Merchant {
             id: MerchantId::new(id.to_owned()),
             changed: ts(),
-            user: UserId::new(1_i64),
+            user: Some(UserId::new(1_i64)),
             title: format!("Merchant {id}"),
         }
     }

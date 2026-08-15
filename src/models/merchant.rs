@@ -14,8 +14,8 @@ pub struct Merchant {
     /// Last modification timestamp.
     #[serde(with = "chrono::serde::ts_seconds")]
     pub changed: DateTime<Utc>,
-    /// Owner user identifier.
-    pub user: UserId,
+    /// Owner user identifier. System merchants may not have an owner.
+    pub user: Option<UserId>,
     /// Merchant display name.
     pub title: String,
 }
@@ -34,7 +34,21 @@ mod tests {
         }"#;
         let merchant: Merchant = serde_json::from_str(json).unwrap();
         assert_eq!(merchant.id, MerchantId::new("merchant-001".to_owned()));
+        assert_eq!(merchant.user, Some(UserId::new(123)));
         assert_eq!(merchant.title, "McDonald's");
+    }
+
+    #[test]
+    fn deserialize_system_merchant_without_user() {
+        let json = r#"{
+            "id": "428875db-3f0c-4b37-a132-774b0ccad703",
+            "changed": 1403602415,
+            "user": null,
+            "title": "Перекрёсток"
+        }"#;
+        let merchant: Merchant = serde_json::from_str(json).unwrap();
+        assert_eq!(merchant.user, None);
+        assert_eq!(merchant.title, "Перекрёсток");
     }
 
     #[test]
@@ -42,7 +56,7 @@ mod tests {
         let merchant = Merchant {
             id: MerchantId::new("m-1".to_owned()),
             changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-            user: UserId::new(1),
+            user: Some(UserId::new(1)),
             title: "Test Merchant".to_owned(),
         };
         let json = serde_json::to_string(&merchant).unwrap();
