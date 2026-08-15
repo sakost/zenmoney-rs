@@ -2286,7 +2286,7 @@ mod tests {
         Merchant {
             id: MerchantId::new(id.to_owned()),
             changed: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-            user: UserId::new(1_i64),
+            user: Some(UserId::new(1_i64)),
             title: "Test Merchant".to_owned(),
         }
     }
