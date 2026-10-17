@@ -25,14 +25,16 @@ pub struct Transaction {
     pub hold: Option<bool>,
     /// Income currency instrument.
     pub income_instrument: InstrumentId,
-    /// Income destination account.
-    pub income_account: AccountId,
+    /// Income destination account. `None` for deleted transactions (ZenMoney API omits it).
+    #[serde(default)]
+    pub income_account: Option<AccountId>,
     /// Income amount (>= 0).
     pub income: f64,
     /// Outcome currency instrument.
     pub outcome_instrument: InstrumentId,
-    /// Outcome source account.
-    pub outcome_account: AccountId,
+    /// Outcome source account. `None` for deleted transactions (ZenMoney API omits it).
+    #[serde(default)]
+    pub outcome_account: Option<AccountId>,
     /// Outcome amount (>= 0).
     pub outcome: f64,
     /// Associated category tags.
